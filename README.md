@@ -1,163 +1,165 @@
 # 🔍 Image Search Desktop
 
-크로스 플랫폼 이미지 검색 데스크톱 애플리케이션입니다. 머신러닝을 사용하여 유사한 이미지를 찾아줍니다.
+<div align="center">
+  
+![Version](https://img.shields.io/badge/version-11.5.0-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
+![Build Status](https://img.shields.io/badge/build-fixing-yellow.svg)
+
+**AI 기반 이미지 유사도 검색 데스크톱 애플리케이션**
+
+[다운로드](#-다운로드) • [설치](#-설치) • [사용법](#-사용법) • [문제해결](#-문제해결)
+
+</div>
 
 ## ✨ 주요 기능
 
-- **🖼️ 이미지 유사도 검색**: 업로드한 이미지와 비슷한 이미지 찾기
-- **📁 폴더 인덱싱**: 폴더 내 모든 이미지를 분석하여 데이터베이스 구축
-- **🚀 빠른 검색**: TensorFlow.js를 사용한 실시간 특징 추출
-- **💾 로컬 저장**: 인덱싱된 데이터를 로컬에 저장하여 재사용
-- **🎨 모던 UI**: 깔끔하고 직관적인 사용자 인터페이스
+- 🤖 **딥러닝 기반**: MobileNet v2 모델 사용
+- ⚡ **GPU 가속**: WebGL 활용 고속 처리
+- 💾 **로컬 처리**: 인터넷 연결 불필요 (첫 실행 제외)
+- 🎯 **높은 정확도**: 70-85% 유사도 검색
+- 📁 **대량 처리**: 수천 개 이미지 인덱싱 가능
 
-## 🛠️ 기술 스택
+## 🚨 현재 상태 (2025.01.03)
 
-- **Frontend**: JavaScript, TensorFlow.js, Vite
-- **Backend**: Rust (Tauri)
-- **ML Model**: MobileNet (이미지 특징 추출)
-- **Storage**: LocalForage (인덱싱 데이터 저장)
+### ⚠️ v11.5 진단 버전
+- **문제**: 일부 버전에서 99.9% 유사도 버그 발생
+- **해결 중**: 진단 도구 포함된 v11.5 배포 준비 중
+- **임시 해결**: DB 초기화 후 재인덱싱
 
-## 📋 시스템 요구사항
+## 📥 다운로드
 
-- **OS**: Windows 10+, macOS 10.13+, Linux
-- **RAM**: 4GB 이상 권장
-- **저장공간**: 500MB 이상
+> 🔧 **빌드 수정 중** - 곧 새 버전이 릴리즈됩니다
 
-## 🚀 개발 환경 설정
+최신 버전: [GitHub Releases](https://github.com/eonyeon/image-search/releases)
 
-### 필수 도구
-- Node.js 18+
-- Rust (최신 stable)
-- npm 또는 yarn
+| 플랫폼 | 파일 | 요구사항 |
+|--------|------|----------|
+| Windows | `.msi` | Windows 10/11 |
+| macOS | `.dmg` | macOS 11+ |
+| Linux | `.deb` / `.AppImage` | Ubuntu 20.04+ |
 
-### 설치 및 실행
-
-```bash
-# 1. 저장소 클론
-git clone https://github.com/yourusername/image-search-desktop.git
-cd image-search-desktop
-
-# 2. 의존성 설치
-npm install
-
-# 3. 아이콘 생성 (첫 실행 시)
-chmod +x create-icons.sh
-./create-icons.sh
-
-# 4. 개발 모드 실행
-npm run tauri:dev
-
-# 5. 프로덕션 빌드
-npm run build:safe
-```
-
-## 📦 빌드
+## 🛠️ 설치
 
 ### Windows
-```bash
-npm run tauri:build
-# 결과물: src-tauri/target/release/bundle/msi/*.msi
-```
+1. `.msi` 파일 다운로드
+2. 더블클릭하여 설치
+3. Windows Defender 경고 시 "추가 정보" → "실행"
 
 ### macOS
-```bash
-npm run tauri:build
-# 결과물: src-tauri/target/release/bundle/dmg/*.dmg
-```
+1. `.dmg` 파일 다운로드
+2. 열어서 Applications 폴더로 드래그
+3. 첫 실행 시: 우클릭 → "열기"
 
 ### Linux
 ```bash
-npm run tauri:build
-# 결과물: src-tauri/target/release/bundle/deb/*.deb
+# Debian/Ubuntu
+sudo dpkg -i image-search-desktop_*.deb
+
+# AppImage
+chmod +x Image-Search-Desktop-*.AppImage
+./Image-Search-Desktop-*.AppImage
 ```
 
-## 🎯 사용 방법
+## 📖 사용법
 
-### 검색 모드
-1. **이미지 업로드**: 드래그 앤 드롭 또는 클릭하여 이미지 선택
-2. **검색 실행**: "유사 이미지 검색" 버튼 클릭
-3. **결과 확인**: 유사도가 높은 순서대로 결과 표시
+### 1️⃣ 이미지 인덱싱
+1. **인덱싱 모드** 선택
+2. **폴더 선택** 버튼 클릭
+3. 이미지 폴더 선택 (jpg, png, gif, webp 지원)
+4. 인덱싱 완료 대기
 
-### 인덱싱 모드
-1. **폴더 선택**: "이미지 폴더 선택" 버튼 클릭
-2. **인덱싱 진행**: 자동으로 폴더 내 모든 이미지 분석
-3. **완료**: 인덱싱된 이미지를 검색에 사용 가능
+### 2️⃣ 유사 이미지 검색
+1. **검색 모드** 선택
+2. 이미지 업로드 (드래그 앤 드롭 가능)
+3. **유사 이미지 검색** 버튼 클릭
+4. 결과 확인 (유사도 % 표시)
 
-## 🔧 문제 해결
+## 🔍 진단 도구 (v11.5)
 
-### 아이콘 관련 오류
-```bash
-# 아이콘 재생성
-npm run icons:fix
+### 개발자 도구 열기
+- `Ctrl + Shift + I` (Windows/Linux)
+- `Cmd + Option + I` (macOS)
+- 또는 우클릭 → "검사"
+
+### 진단 콘솔 사용
+1. 인덱싱 모드 → **"진단 콘솔"** 버튼
+2. 각 진단 버튼 클릭
+3. 99.9% 버그 확인
+
+### 콘솔 명령어
+```javascript
+fashionApp.version()        // 버전 확인
+fashionApp.diagnose()       // 시스템 진단
+fashionApp.showDiagnostics() // 팝업 진단
+fashionApp.clearDB()        // DB 초기화
 ```
 
-### 빌드 오류 (Windows)
-```powershell
-# Visual Studio Build Tools 설치
-choco install visualstudio2022buildtools -y
-```
+## 🐛 문제해결
+
+### 99.9% 유사도 문제
+1. DB 초기화: 인덱싱 모드 → "DB 초기화"
+2. 폴더 재인덱싱
+3. 여전히 문제 시 진단 콘솔 사용
 
 ### 모델 로드 실패
-- 인터넷 연결 확인 (첫 실행 시 모델 다운로드 필요)
-- 브라우저 캐시 삭제 후 재시도
+- 인터넷 연결 확인 (첫 실행 시 필요)
+- 방화벽/안티바이러스 확인
+- Chrome 최신 버전 확인
 
-## 🤝 기여하기
+### Windows Defender 경고
+- 정상입니다 (코드 서명 없음)
+- "추가 정보" → "실행" 클릭
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+## 🛠️ 기술 스택
 
-## 📄 라이선스
+- **Framework**: Tauri 1.6 + Vite
+- **AI Model**: TensorFlow.js + MobileNet v2
+- **Storage**: LocalForage
+- **Language**: JavaScript/Rust
+- **UI**: HTML5 + CSS3
 
-이 프로젝트는 MIT 라이선스를 따릅니다.
+## 📊 성능
 
-## 🙏 감사의 글
+| 항목 | 사양 |
+|------|------|
+| 정확도 | 70-85% |
+| 처리 속도 | ~100ms/이미지 (GPU) |
+| 메모리 사용 | ~200MB |
+| 모델 크기 | 16MB |
+| 최대 이미지 | 10,000+ |
 
-- [Tauri](https://tauri.app/) - 크로스 플랫폼 데스크톱 앱 프레임워크
-- [TensorFlow.js](https://www.tensorflow.org/js) - 브라우저에서 ML 모델 실행
-- [MobileNet](https://github.com/tensorflow/tfjs-models/tree/master/mobilenet) - 이미지 분류 모델
+## 📝 버전 히스토리
+
+### v11.5.0 (2025.01.03) - 진단 버전
+- 🔍 진단 콘솔 추가
+- 🐛 100% 유사도 버그 수정 중
+- 🔧 개발자 도구 활성화
+
+### v11.1.0 (2025.01.02)
+- 📦 제품 그룹화 기능
+- 🎯 85% 정확도 달성
+- 💾 모델 캐싱
+
+### v10.3.0 (2025.01.02)
+- ✅ 첫 안정 버전
+- 🤖 MobileNet v2 통합
+- ⚡ WebGL 가속
+
+## 👥 기여
+
+버그 리포트 및 제안: [Issues](https://github.com/eonyeon/image-search/issues)
+
+## 📄 라이센스
+
+MIT License - 자유롭게 사용 가능
 
 ---
 
-## 🎯 최근 개선사항 (2025-09-02)
+<div align="center">
+  
+**Made with ❤️ by @eonyeon**
 
-### 🚀 v2.0.0 - 완전히 새로운 알고리즘
-- **새로운 이미지 검색 엔진**: 리서치 기반 최신 알고리즘 적용
-  - MobileNet v2 기반 딥러닝 특징 추출
-  - 퍼셉추얼 해싱으로 빠른 사전 필터링
-  - 색상 히스토그램을 통한 보조 특징 활용
-  - 가중 유사도 계산 (딥러닝 70%, 색상 20%, 메타데이터 10%)
+[⬆ 맨 위로](#-image-search-desktop)
 
-- **성능 최적화**
-  - WebGL 백엔드로 GPU 가속 (2-3배 속도 향상)
-  - 메모리 관리 개선 (tf.tidy() 적용)
-  - 배치 처리로 대용량 인덱싱 안정성 향상
-  - 지연 로딩으로 결과 표시 속도 개선
-
-- **Rust 백엔드 통합**
-  - 이미지 전처리 가속화
-  - 퍼셉추얼 해시 계산 최적화
-  - 썸네일 생성 기능
-  - 메타데이터 추출 기능
-
-- **이미지 로드 문제 해결**
-  - 파일 경로 정규화
-  - 특수문자 파일명 처리 개선
-  - 로드 실패 시 자동 대체 방법 적용
-
-### 🔧 기존 문제 해결
-- ✅ 브랜드 오인식 문제 해결 (복잡한 패턴 감지 제거)
-- ✅ 이미지 로드 오류 수정
-- ✅ 알고리즘 단순화로 정확도 향상
-- ✅ 메모리 누수 방지
-
-### 🚨 알려진 제한사항
-- 첫 실행 시 MobileNet v2 모델 다운로드 필요 (약 16MB)
-- 브랜드별 특화 인식은 지원하지 않음 (일반 유사도 검색에 집중)
-- 대용량 이미지 처리 시 GPU 메모리 사용량 증가
-
-**개발자**: Your Name  
-**이메일**: your.email@example.com  
-**버전**: 1.0.2
+</div>

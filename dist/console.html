@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Search Desktop - Console</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #2196F3;
+            border-bottom: 2px solid #2196F3;
+            padding-bottom: 10px;
+        }
+        .console-output {
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .console-line {
+            margin: 5px 0;
+            padding: 3px;
+        }
+        .console-line.error {
+            color: #ff5555;
+        }
+        .console-line.success {
+            color: #50fa7b;
+        }
+        .console-line.info {
+            color: #8be9fd;
+        }
+        .console-line.warning {
+            color: #f1fa8c;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        .button-group {
+            margin: 20px 0;
+        }
+        .status {
+            background: #333;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Image Search Desktop - 진단 콘솔</h1>
+    
+    <div class="status">
+        <strong>상태:</strong> <span id="status">대기 중...</span>
+    </div>
+
+    <div class="button-group">
+        <button onclick="runDiagnose()">🔍 시스템 진단</button>
+        <button onclick="checkVersion()">📌 버전 확인</button>
+        <button onclick="checkFeatures()">📊 특징 벡터 확인</button>
+        <button onclick="testSimilarity()">🧪 유사도 테스트</button>
+        <button onclick="checkMemory()">💾 메모리 상태</button>
+        <button onclick="clearConsole()">🗑️ 콘솔 지우기</button>
+    </div>
+
+    <div class="console-output" id="console">
+        <div class="console-line info">콘솔 준비 완료. 버튼을 클릭하여 진단을 시작하세요.</div>
+    </div>
+
+    <div class="button-group">
+        <button onclick="clearDB()">⚠️ DB 초기화</button>
+        <button onclick="goBack()">↩️ 메인으로 돌아가기</button>
+    </div>
+
+    <script>
+        const consoleDiv = document.getElementById('console');
+        const statusDiv = document.getElementById('status');
+
+        function addConsoleLog(message, type = 'info') {
+            const line = document.createElement('div');
+            line.className = `console-line ${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            consoleDiv.appendChild(line);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
+
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
+
+        // 전역 오류 캐처
+        window.addEventListener('error', (event) => {
+            addConsoleLog(`에러: ${event.message}`, 'error');
+        });
+
+        async function runDiagnose() {
+            updateStatus('진단 실행 중...');
+            addConsoleLog('🔍 시스템 진단 시작...', 'info');
+            
+            try {
+                if (window.parent && window.parent.fashionApp) {
+                    const result = await window.parent.fashionApp.diagnose();
+                    addConsoleLog(result, 'success');
+                } else if (window.fashionApp) {
+                    const result = await window.fashionApp.diagnose();
+                    addConsoleLog(result, 'success');
+                } else {
+                    // 직접 진단
+                    addConsoleLog('앱이 로드되지 않았습니다. 기본 진단 실행...', 'warning');
+                    
+                    // TensorFlow 체크
+                    if (typeof tf !== 'undefined') {
+                        addConsoleLog(`TensorFlow.js: ${tf.version.tfjs}`, 'info');
+                        addConsoleLog(`Backend: ${tf.getBackend()}`, 'info');
+                    } else {
+                        addConsoleLog('TensorFlow.js가 로드되지 않음', 'error');
+                    }
+                }
+                updateStatus('진단 완료');
+            } catch (error) {
+                addConsoleLog(`진단 실패: ${error.message}`, 'error');
+                updateStatus('진단 실패');
+            }
+        }
+
+        async function checkVersion() {
+            updateStatus('버전 확인 중...');
+            addConsoleLog('📌 버전 확인...', 'info');
+            
+            try {
+                if (window.parent && window.parent.fashionApp) {
+                    const version = window.parent.fashionApp.version();
+                    addConsoleLog(`버전: ${version}`, 'success');
+                } else if (window.fashionApp) {
+                    const version = window.fashionApp.version();
+                    addConsoleLog(`버전: ${version}`, 'success');
+                } else {
+                    addConsoleLog('앱 버전을 확인할 수 없습니다', 'warning');
+                }
+                updateStatus('완료');
+            } catch (error) {
+                addConsoleLog(`버전 확인 실패: ${error.message}`, 'error');
+                updateStatus('실패');
+            }
+        }
+
+        async function checkFeatures() {
+            updateStatus('특징 벡터 확인 중...');
+            addConsoleLog('📊 특징 벡터 확인...', 'info');
+            
+            try {
+                if (window.parent && window.parent.fashionApp) {
+                    const features = window.parent.fashionApp.checkFeatures();
+                    addConsoleLog(`특징 벡터: ${JSON.stringify(features).substring(0, 200)}...`, 'success');
+                } else if (window.fashionApp) {
+                    const features = window.fashionApp.checkFeatures();
+                    addConsoleLog(`특징 벡터: ${JSON.stringify(features).substring(0, 200)}...`, 'success');
+                } else {
+                    addConsoleLog('특징 벡터를 확인할 수 없습니다', 'warning');
+                }
+                updateStatus('완료');
+            } catch (error) {
+                addConsoleLog(`특징 벡터 확인 실패: ${error.message}`, 'error');
+                updateStatus('실패');
+            }
+        }
+
+        async function testSimilarity() {
+            updateStatus('유사도 테스트 중...');
+            addConsoleLog('🧪 유사도 테스트...', 'info');
+            
+            try {
+                if (window.parent && window.parent.fashionApp) {
+                    // 간단한 테스트 수행
+                    const db = window.parent.fashionApp.imageDatabase;
+                    if (db && db.length >= 2) {
+                        const sim = window.parent.fashionApp.calculateCosineSimilarity(
+                            db[0].features, 
+                            db[1].features
+                        );
+                        addConsoleLog(`이미지 1 vs 2: ${(sim * 100).toFixed(1)}%`, 'info');
+                        
+                        if (sim > 0.99) {
+                            addConsoleLog('⚠️ 경고: 유사도가 비정상적으로 높습니다!', 'error');
+                        } else {
+                            addConsoleLog('✅ 유사도가 정상 범위입니다', 'success');
+                        }
+                    } else {
+                        addConsoleLog('테스트할 이미지가 부족합니다 (2개 이상 필요)', 'warning');
+                    }
+                } else {
+                    addConsoleLog('앱이 로드되지 않았습니다', 'warning');
+                }
+                updateStatus('완료');
+            } catch (error) {
+                addConsoleLog(`유사도 테스트 실패: ${error.message}`, 'error');
+                updateStatus('실패');
+            }
+        }
+
+        async function checkMemory() {
+            updateStatus('메모리 확인 중...');
+            addConsoleLog('💾 메모리 상태 확인...', 'info');
+            
+            try {
+                if (typeof tf !== 'undefined') {
+                    const memory = tf.memory();
+                    addConsoleLog(`Tensors: ${memory.numTensors}`, 'info');
+                    addConsoleLog(`Bytes: ${(memory.numBytes / 1048576).toFixed(2)} MB`, 'info');
+                }
+                
+                if (performance.memory) {
+                    const used = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
+                    const total = (performance.memory.totalJSHeapSize / 1048576).toFixed(2);
+                    addConsoleLog(`JS Heap: ${used} MB / ${total} MB`, 'info');
+                }
+                updateStatus('완료');
+            } catch (error) {
+                addConsoleLog(`메모리 확인 실패: ${error.message}`, 'error');
+                updateStatus('실패');
+            }
+        }
+
+        function clearConsole() {
+            consoleDiv.innerHTML = '<div class="console-line info">콘솔이 지워졌습니다.</div>';
+            updateStatus('대기 중...');
+        }
+
+        async function clearDB() {
+            if (confirm('정말로 DB를 초기화하시겠습니까?')) {
+                updateStatus('DB 초기화 중...');
+                addConsoleLog('⚠️ DB 초기화 시작...', 'warning');
+                
+                try {
+                    if (window.parent && window.parent.fashionApp) {
+                        await window.parent.fashionApp.clearDB();
+                        addConsoleLog('✅ DB 초기화 완료', 'success');
+                    } else {
+                        addConsoleLog('앱이 로드되지 않았습니다', 'error');
+                    }
+                    updateStatus('DB 초기화 완료');
+                } catch (error) {
+                    addConsoleLog(`DB 초기화 실패: ${error.message}`, 'error');
+                    updateStatus('실패');
+                }
+            }
+        }
+
+        function goBack() {
+            window.location.href = 'index.html';
+        }
+
+        // 페이지 로드 시 자동 진단
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                addConsoleLog('자동 진단을 시작하려면 "시스템 진단" 버튼을 클릭하세요', 'info');
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

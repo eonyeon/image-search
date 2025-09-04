@@ -9,7 +9,7 @@ on:
 
 env:
   APP_NAME: "Image Search Desktop"
-  APP_VERSION: "11.1.0"
+  APP_VERSION: "11.5.0"
 
 jobs:
   # Windows 빌드
@@ -37,11 +37,31 @@ jobs:
     - name: 🏗️ Build Frontend
       run: |
         npm run build
-        dir dist
+        Write-Host "Checking dist folder..."
+        Get-ChildItem -Path dist
 
-    - name: 🚀 Build Tauri App
+    - name: 📝 Copy HTML files to dist
+      shell: powershell
       run: |
-        npm run tauri:build -- --verbose
+        Write-Host "Copying HTML files to dist..."
+        Copy-Item -Path index.html -Destination dist/ -Force
+        Copy-Item -Path console.html -Destination dist/ -Force -ErrorAction SilentlyContinue
+        Write-Host "Files in dist:"
+        Get-ChildItem -Path dist
+
+    - name: 🚀 Build Tauri App (Method 1)
+      id: tauri_build_1
+      continue-on-error: true
+      run: |
+        npm run tauri build
+      env:
+        TAURI_PRIVATE_KEY: ""
+        TAURI_KEY_PASSWORD: ""
+
+    - name: 🚀 Build Tauri App (Method 2 - if Method 1 fails)
+      if: steps.tauri_build_1.outcome == 'failure'
+      run: |
+        npx tauri build
       env:
         TAURI_PRIVATE_KEY: ""
         TAURI_KEY_PASSWORD: ""
@@ -50,10 +70,22 @@ jobs:
       if: always()
       shell: powershell
       run: |
-        Write-Host "Checking build output..."
+        Write-Host "=== Checking all possible build locations ==="
+        
+        Write-Host "`n1. src-tauri/target/release/bundle:"
         if (Test-Path "src-tauri/target/release/bundle") {
-          Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse | Select-Object FullName
+          Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse | Where-Object { $_.Extension -in @('.msi', '.exe') } | Select-Object FullName
+        } else {
+          Write-Host "  Directory not found"
         }
+        
+        Write-Host "`n2. src-tauri/target/release:"
+        if (Test-Path "src-tauri/target/release") {
+          Get-ChildItem -Path "src-tauri/target/release" -Filter "*.exe" | Select-Object FullName
+        }
+        
+        Write-Host "`n3. All .msi files in project:"
+        Get-ChildItem -Path . -Recurse -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object FullName
 
     - name: 📤 Upload Windows Installer
       uses: actions/upload-artifact@v4
@@ -94,11 +126,29 @@ jobs:
     - name: 🏗️ Build Frontend
       run: |
         npm run build
+        echo "Checking dist folder..."
+        ls -la dist/
+
+    - name: 📝 Copy HTML files to dist
+      run: |
+        echo "Copying HTML files to dist..."
+        cp index.html dist/ || true
+        cp console.html dist/ || true
+        echo "Files in dist:"
         ls -la dist/
 
     - name: 🚀 Build Tauri App (Universal)
       run: |
-        npm run tauri:build -- --target universal-apple-darwin --verbose
+        npm run tauri build -- --target universal-apple-darwin
+      env:
+        TAURI_PRIVATE_KEY: ""
+        TAURI_KEY_PASSWORD: ""
+      continue-on-error: true
+
+    - name: 🚀 Build Tauri App (x64 fallback)
+      if: failure()
+      run: |
+        npm run tauri build
       env:
         TAURI_PRIVATE_KEY: ""
         TAURI_KEY_PASSWORD: ""
@@ -106,13 +156,8 @@ jobs:
     - name: 📁 List Build Output
       if: always()
       run: |
-        echo "Checking build output..."
-        if [ -d "src-tauri/target/release/bundle" ]; then
-          find src-tauri/target/release/bundle -type f -name "*.dmg" -o -name "*.app"
-        fi
-        if [ -d "src-tauri/target/universal-apple-darwin/release/bundle" ]; then
-          find src-tauri/target/universal-apple-darwin/release/bundle -type f
-        fi
+        echo "=== Checking build output ==="
+        find src-tauri/target -name "*.dmg" -o -name "*.app" 2>/dev/null || true
 
     - name: 📤 Upload macOS DMG
       uses: actions/upload-artifact@v4
@@ -161,11 +206,20 @@ jobs:
     - name: 🏗️ Build Frontend
       run: |
         npm run build
+        echo "Checking dist folder..."
+        ls -la dist/
+
+    - name: 📝 Copy HTML files to dist
+      run: |
+        echo "Copying HTML files to dist..."
+        cp index.html dist/ || true
+        cp console.html dist/ || true
+        echo "Files in dist:"
         ls -la dist/
 
     - name: 🚀 Build Tauri App
       run: |
-        npm run tauri:build -- --verbose
+        npm run tauri build
       env:
         TAURI_PRIVATE_KEY: ""
         TAURI_KEY_PASSWORD: ""
@@ -173,10 +227,8 @@ jobs:
     - name: 📁 List Build Output
       if: always()
       run: |
-        echo "Checking build output..."
-        if [ -d "src-tauri/target/release/bundle" ]; then
-          find src-tauri/target/release/bundle -type f
-        fi
+        echo "=== Checking build output ==="
+        find src-tauri/target/release/bundle -type f 2>/dev/null || true
 
     - name: 📤 Upload Linux Packages
       uses: actions/upload-artifact@v4
@@ -194,7 +246,7 @@ jobs:
   create-release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && success()
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
     - name: 📥 Download All Artifacts
@@ -205,48 +257,41 @@ jobs:
     - name: 📁 List Downloaded Files
       run: |
         echo "Downloaded artifacts:"
-        find artifacts -type f -name "*.msi" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.exe"
+        find artifacts -type f \( -name "*.msi" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.exe" \) 2>/dev/null || echo "No artifacts found"
 
     - name: 🎉 Create GitHub Release
       uses: softprops/action-gh-release@v1
+      if: success()
       with:
         tag_name: v${{ env.APP_VERSION }}-build${{ github.run_number }}
         name: "🚀 ${{ env.APP_NAME }} v${{ env.APP_VERSION }} - Build ${{ github.run_number }}"
         body: |
-          ## 🔍 Image Search Desktop Release - v11.1
+          ## 🔍 Image Search Desktop v11.5 - Diagnostic Release
           
           **Version:** ${{ env.APP_VERSION }}  
           **Build:** ${{ github.run_number }}  
           **Commit:** ${{ github.sha }}
           
-          ### ✨ v11.1 Features - Enhanced Product Recognition
-          - 🎯 85-88% search accuracy (from 30%)
-          - 📦 Product-aware search with ID grouping
-          - 🔍 Debug mode for troubleshooting
-          - ⚡ WebGL GPU acceleration
-          - 🖼️ MobileNetV2 deep learning model
-          - 💾 Local storage with LocalForage
+          ### 🔍 v11.5 Diagnostic Features
+          - 📊 Diagnostic console page for debugging
+          - 🔧 Developer tools enabled
+          - 🐛 100% similarity bug investigation
+          - 💾 Memory leak fixes
+          - 🎯 Detailed logging
+          
+          ### 🆕 How to Diagnose
+          1. **Method 1**: Index Mode → "Diagnostic Console" button
+          2. **Method 2**: Right-click → Console → `fashionApp.showDiagnostics()`
+          3. **Method 3**: Ctrl+Shift+I for developer tools
+          
+          ### ⚠️ Important
+          - **Clear DB and re-index after installing**
+          - Check if similarity shows 99.9% (bug) or 40-80% (normal)
           
           ### 📥 Downloads
-          - **Windows**: `.msi` installer (Windows 10/11)
-          - **macOS**: `.dmg` installer (macOS 11+, Universal)
-          - **Linux**: `.deb` package or `.AppImage`
-          
-          ### 🔧 Installation
-          - **Windows**: Double-click the MSI file
-          - **macOS**: Open DMG and drag to Applications
-          - **Linux**: 
-            - Debian/Ubuntu: `sudo dpkg -i *.deb`
-            - AppImage: `chmod +x *.AppImage && ./AppImage`
-          
-          ### 💡 First Run
-          1. Click "Select Folder" to index your images
-          2. Upload an image to search
-          3. Click "Search Similar Images"
-          
-          ### 🐛 Known Issues
-          - Windows Defender may show a warning (unsigned app)
-          - First model load requires internet connection (~16MB)
+          - **Windows**: `.msi` installer
+          - **macOS**: `.dmg` installer
+          - **Linux**: `.deb` or `.AppImage`
         files: |
           artifacts/**/*.msi
           artifacts/**/*.exe

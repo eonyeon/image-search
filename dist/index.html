@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>이미지 검색 시스템</title>
+    <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 이미지 검색 시스템</h1>
+            <p class="subtitle">이미지를 업로드하여 유사한 이미지를 찾아보세요</p>
+        </header>
+
+        <main>
+            <!-- 모드 선택 -->
+            <div class="mode-selector">
+                <button class="mode-btn active" data-mode="search">
+                    <span class="icon">🔍</span>
+                    <span>검색 모드</span>
+                </button>
+                <button class="mode-btn" data-mode="index">
+                    <span class="icon">📁</span>
+                    <span>인덱싱 모드</span>
+                </button>
+            </div>
+
+            <!-- 검색 모드 -->
+            <div id="search-mode" class="mode-content active">
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-placeholder">
+                        <svg class="upload-icon" width="64" height="64" viewBox="0 0 24 24" fill="none">
+                            <path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M17 8L12 3L7 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M12 3V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <p class="upload-text">이미지를 드래그하거나 클릭하여 업로드</p>
+                        <p class="upload-hint">지원 형식: JPG, PNG, GIF, WEBP</p>
+                    </div>
+                    <input type="file" id="file-input" accept="image/*" style="display: none;">
+                </div>
+
+                <div id="preview-section" class="preview-section" style="display: none;">
+                    <h3>업로드된 이미지</h3>
+                    <img id="uploaded-image" class="preview-image" alt="Preview" style="display: none;">
+                    <button id="search-btn" class="primary-btn" disabled>
+                        <span class="btn-icon">🔍</span>
+                        유사 이미지 검색
+                    </button>
+                </div>
+
+                <div id="results-section" class="results-section" style="display: none;">
+                    <h3>검색 결과 <span id="result-count"></span></h3>
+                    <div id="search-results" class="results-grid"></div>
+                    <div id="stats" class="stats-info"></div>
+                </div>
+            </div>
+
+            <!-- 인덱싱 모드 -->
+            <div id="index-mode" class="mode-content">
+                <div class="index-controls">
+                    <button id="select-folder-btn" class="secondary-btn">
+                        <span class="btn-icon">📁</span>
+                        이미지 폴더 선택
+                    </button>
+                    <button id="clear-db-btn" class="secondary-btn" style="margin-left: 10px; background-color: #ff6b6b; color: white; border-color: #ff6b6b;">
+                        <span class="btn-icon">🗑️</span>
+                        데이터베이스 초기화
+                    </button>
+                    <button id="console-btn" class="secondary-btn" style="margin-left: 10px; background-color: #4CAF50; color: white; border-color: #4CAF50;" onclick="window.location.href='console.html'">
+                        <span class="btn-icon">🔍</span>
+                        진단 콘솔
+                    </button>
+                    <div id="folder-info" class="folder-info" style="display: none;">
+                        <p>선택된 폴더: <span id="folder-path"></span></p>
+                        <p>이미지 수: <span id="image-count">0</span>개</p>
+                    </div>
+                </div>
+
+                <div id="indexing-progress" class="indexing-progress" style="display: none;">
+                    <h3>인덱싱 진행 중...</h3>
+                    <div class="progress-bar">
+                        <div id="progress-fill" class="progress-fill"></div>
+                    </div>
+                    <p id="progress-text">0 / 0</p>
+                </div>
+
+                <div id="index-results" class="index-results" style="display: none;">
+                    <h3>인덱싱 완료</h3>
+                    <p><span id="indexed-count">0</span>개의 이미지가 인덱싱되었습니다.</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>© 2025 Image Search Desktop - Built with Tauri</p>
+        </footer>
+    </div>
+
+    <!-- 로딩 오버레이 -->
+    <div id="loading" class="loading-overlay" style="display: none;">
+        <div class="loader"></div>
+        <p class="loading-text">처리 중...</p>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
