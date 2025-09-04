@@ -1,0 +1,230 @@
+name: 🚀 Cross-Platform Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  APP_NAME: "Image Search Desktop"
+  APP_VERSION: "1.0.0"
+
+jobs:
+  # Windows 빌드
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 🦀 Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: 🛠️ Install Windows Dependencies
+      shell: powershell
+      run: |
+        # Visual Studio Build Tools는 GitHub Actions에 이미 설치됨
+
+    - name: 📦 Install NPM Dependencies
+      run: npm ci
+
+    - name: 🎨 Generate Icons
+      shell: powershell
+      run: |
+        Write-Host "🎨 Generating icons for Windows..."
+        
+        # 아이콘 디렉토리 생성
+        New-Item -ItemType Directory -Path "src-tauri/icons" -Force
+        
+        # 아이콘이 없으면 생성
+        if (-not (Test-Path "src-tauri/icons/icon.png")) {
+          Write-Host "Creating default icon..."
+          Invoke-WebRequest -Uri "https://via.placeholder.com/512x512/4A90E2/FFFFFF?text=Search" -OutFile "src-tauri/icons/icon.png"
+        }
+        
+        # Tauri 아이콘 생성
+        npx tauri icon src-tauri/icons/icon.png
+
+    - name: 🏗️ Build Frontend
+      run: npm run build
+
+    - name: 🚀 Build Tauri App
+      run: npm run tauri:build
+
+    - name: 📤 Upload Windows Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-installer
+        path: src-tauri/target/release/bundle/msi/*.msi
+        retention-days: 30
+
+  # macOS 빌드
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 🦀 Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: 📦 Install NPM Dependencies
+      run: npm ci
+
+    - name: 🎨 Generate Icons
+      run: |
+        echo "🎨 Generating icons for macOS..."
+        
+        # 아이콘 디렉토리 생성
+        mkdir -p src-tauri/icons
+        
+        # 아이콘이 없으면 생성
+        if [ ! -f "src-tauri/icons/icon.png" ]; then
+          echo "Creating icon from system resources..."
+          sips -s format png --resampleWidth 512 --resampleHeight 512 \
+            /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns \
+            --out src-tauri/icons/icon.png || \
+          curl -o src-tauri/icons/icon.png "https://via.placeholder.com/512x512/4A90E2/FFFFFF?text=Search"
+        fi
+        
+        # Tauri 아이콘 생성
+        npx tauri icon src-tauri/icons/icon.png
+
+    - name: 🏗️ Build Frontend
+      run: npm run build
+
+    - name: 🚀 Build Tauri App
+      run: npm run tauri:build
+
+    - name: 📤 Upload macOS DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dmg
+        path: src-tauri/target/release/bundle/dmg/*.dmg
+        retention-days: 30
+
+  # Linux 빌드
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: 📥 Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 🦀 Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: 🛠️ Install Linux Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev
+
+    - name: 📦 Install NPM Dependencies
+      run: npm ci
+
+    - name: 🎨 Generate Icons
+      run: |
+        echo "🎨 Generating icons for Linux..."
+        
+        # 아이콘 디렉토리 생성
+        mkdir -p src-tauri/icons
+        
+        # 아이콘이 없으면 생성
+        if [ ! -f "src-tauri/icons/icon.png" ]; then
+          echo "Downloading default icon..."
+          curl -o src-tauri/icons/icon.png "https://via.placeholder.com/512x512/4A90E2/FFFFFF?text=Search"
+        fi
+        
+        # Tauri 아이콘 생성
+        npx tauri icon src-tauri/icons/icon.png
+
+    - name: 🏗️ Build Frontend
+      run: npm run build
+
+    - name: 🚀 Build Tauri App
+      run: npm run tauri:build
+
+    - name: 📤 Upload Linux Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-packages
+        path: |
+          src-tauri/target/release/bundle/deb/*.deb
+          src-tauri/target/release/bundle/appimage/*.AppImage
+        retention-days: 30
+
+  # 릴리즈 생성
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: 📥 Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: 🎉 Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ env.APP_VERSION }}-build${{ github.run_number }}
+        name: "🚀 ${{ env.APP_NAME }} v${{ env.APP_VERSION }} - Build ${{ github.run_number }}"
+        body: |
+          ## 🔍 Image Search Desktop Release
+          
+          **Version:** ${{ env.APP_VERSION }}  
+          **Build:** ${{ github.run_number }}  
+          **Commit:** ${{ github.sha }}
+          
+          ### ✨ Features
+          - 🖼️ Image similarity search using machine learning
+          - 📁 Folder indexing for batch processing
+          - 🚀 Fast search with TensorFlow.js
+          - 💾 Local storage for indexed data
+          - 🎨 Modern and intuitive UI
+          
+          ### 📥 Downloads
+          - **Windows**: `.msi` installer
+          - **macOS**: `.dmg` installer
+          - **Linux**: `.deb` package or `.AppImage`
+          
+          ### 🔧 Installation
+          - **Windows**: Double-click the MSI file
+          - **macOS**: Open DMG and drag to Applications
+          - **Linux**: 
+            - Debian/Ubuntu: `sudo dpkg -i *.deb`
+            - AppImage: Make executable and run
+        files: |
+          artifacts/windows-installer/*.msi
+          artifacts/macos-dmg/*.dmg
+          artifacts/linux-packages/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

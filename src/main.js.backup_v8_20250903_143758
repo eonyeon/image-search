@@ -1,0 +1,1264 @@
+import { invoke } from '@tauri-apps/api/tauri';
+import { open } from '@tauri-apps/api/dialog';
+import { readDir, readBinaryFile } from '@tauri-apps/api/fs';
+import { convertFileSrc } from '@tauri-apps/api/tauri';
+import localforage from 'localforage';
+
+// 브랜드 가방 특화 검색 시스템 v8.0
+class BrandBagSearchSystem {
+    constructor() {
+        this.currentMode = 'search';
+        this.uploadedImage = null;
+        this.imageDatabase = [];
+        this.version = '8.0.0';
+        
+        // LocalForage 설정
+        this.storage = localforage.createInstance({
+            name: 'BrandBagDB',
+            storeName: 'brandBagVectorsV8'
+        });
+        
+        // 브랜드별 시그니처 패턴 정의
+        this.brandPatterns = {
+            louis_vuitton: {
+                colors: { brown: [101, 67, 33], beige: [196, 176, 144] },
+                patterns: ['monogram', 'damier'],
+                metalColors: ['gold'],
+                aspectRatios: [1.0, 1.2, 1.5] // 토트백, 스피디백 등
+            },
+            chanel: {
+                colors: { black: [0, 0, 0], beige: [245, 245, 220] },
+                patterns: ['quilted', 'diamond'],
+                metalColors: ['gold', 'silver'],
+                aspectRatios: [1.3, 1.5]
+            },
+            gucci: {
+                colors: { green: [0, 100, 0], red: [200, 0, 0] },
+                patterns: ['stripes', 'gg_pattern'],
+                metalColors: ['gold'],
+                aspectRatios: [1.0, 1.4]
+            },
+            prada: {
+                colors: { black: [0, 0, 0], navy: [0, 0, 128] },
+                patterns: ['triangle_logo', 'saffiano'],
+                metalColors: ['silver'],
+                aspectRatios: [1.2, 1.4]
+            },
+            hermes: {
+                colors: { orange: [255, 140, 0], brown: [139, 69, 19] },
+                patterns: ['smooth', 'grain'],
+                metalColors: ['gold', 'palladium'],
+                aspectRatios: [1.0, 1.3]
+            }
+        };
+        
+        console.log(`👜 Brand Bag Search v${this.version} - 브랜드 가방 특화 시스템`);
+        this.init();
+    }
+
+    async init() {
+        console.log('✅ 시스템 초기화 중...');
+        await this.loadDatabase();
+        this.setupEventListeners();
+        console.log('✅ 초기화 완료!');
+    }
+
+    setupEventListeners() {
+        console.log('🔧 이벤트 리스너 설정 중...');
+        
+        // 모드 전환
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mode = e.currentTarget.dataset.mode;
+                this.switchMode(mode);
+                console.log(`모드 전환: ${mode}`);
+            });
+        });
+
+        // 파일 업로드
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+
+        if (uploadArea && fileInput) {
+            uploadArea.addEventListener('click', () => {
+                console.log('업로드 영역 클릭');
+                fileInput.click();
+            });
+            
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    this.handleImageUpload(files[0]);
+                }
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log('파일 선택됨:', file.name);
+                    this.handleImageUpload(file);
+                }
+            });
+        }
+
+        // 검색 버튼
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', () => {
+                console.log('검색 버튼 클릭');
+                this.searchSimilarImages();
+            });
+        }
+
+        // 폴더 선택 버튼
+        const selectFolderBtn = document.getElementById('select-folder-btn');
+        if (selectFolderBtn) {
+            selectFolderBtn.addEventListener('click', () => {
+                console.log('폴더 선택 버튼 클릭');
+                this.selectFolder();
+            });
+        }
+
+        // 데이터베이스 초기화 버튼
+        const clearDbBtn = document.getElementById('clear-database-btn');
+        if (clearDbBtn) {
+            clearDbBtn.addEventListener('click', async () => {
+                console.log('DB 초기화 버튼 클릭');
+                if (confirm('모든 인덱싱된 데이터가 삭제됩니다. 계속하시겠습니까?')) {
+                    this.imageDatabase = [];
+                    await this.storage.clear();
+                    alert('데이터베이스가 초기화되었습니다.');
+                    console.log('🗑️ 데이터베이스 초기화 완료');
+                }
+            });
+        }
+        
+        console.log('✅ 이벤트 리스너 설정 완료');
+    }
+
+    switchMode(mode) {
+        this.currentMode = mode;
+        
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        document.querySelectorAll('.mode-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        
+        const targetMode = document.getElementById(`${mode}-mode`);
+        if (targetMode) {
+            targetMode.classList.add('active');
+        }
+    }
+
+    async handleImageUpload(file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const img = new Image();
+            img.onload = async () => {
+                this.uploadedImage = {
+                    file: file,
+                    dataUrl: e.target.result,
+                    width: img.width,
+                    height: img.height
+                };
+
+                const previewImage = document.getElementById('preview-image');
+                const previewSection = document.getElementById('preview-section');
+                const resultsSection = document.getElementById('results-section');
+                
+                if (previewImage) previewImage.src = e.target.result;
+                if (previewSection) previewSection.style.display = 'block';
+                if (resultsSection) resultsSection.style.display = 'none';
+                
+                console.log('✅ 이미지 업로드 완료:', file.name);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // === 브랜드 가방 특화 특징 추출 ===
+    
+    // 1. 브랜드 패턴 감지 (모노그램, 퀼팅 등)
+    detectBrandPatterns(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200;
+        canvas.height = 200;
+        ctx.drawImage(imageElement, 0, 0, 200, 200);
+        
+        const imageData = ctx.getImageData(0, 0, 200, 200);
+        const data = imageData.data;
+        
+        const patterns = {
+            repetitive: 0,      // 반복 패턴 (LV 모노그램)
+            diagonal: 0,        // 대각선 패턴 (Chanel 퀼팅)
+            horizontal: 0,      // 수평 패턴 (Gucci 스트라이프)
+            textured: 0,        // 텍스처 (Prada 사피아노)
+            smooth: 0           // 매끄러운 표면 (Hermes)
+        };
+        
+        // FFT를 이용한 주기성 분석 (간단한 버전)
+        const rowVariances = [];
+        const colVariances = [];
+        
+        for (let y = 0; y < 200; y++) {
+            let rowMean = 0;
+            for (let x = 0; x < 200; x++) {
+                const idx = (y * 200 + x) * 4;
+                rowMean += (data[idx] + data[idx+1] + data[idx+2]) / 3;
+            }
+            rowMean /= 200;
+            
+            let rowVar = 0;
+            for (let x = 0; x < 200; x++) {
+                const idx = (y * 200 + x) * 4;
+                const gray = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                rowVar += Math.pow(gray - rowMean, 2);
+            }
+            rowVariances.push(rowVar / 200);
+        }
+        
+        // 주기성 검출
+        let periodicCount = 0;
+        for (let i = 10; i < rowVariances.length - 10; i += 10) {
+            const window = rowVariances.slice(i, i + 10);
+            const mean = window.reduce((a, b) => a + b) / 10;
+            const isUniform = window.every(v => Math.abs(v - mean) < mean * 0.3);
+            if (isUniform) periodicCount++;
+        }
+        
+        patterns.repetitive = periodicCount / 10;
+        
+        // 대각선 패턴 감지 (Sobel 필터 응용)
+        let diagonalEdges = 0;
+        for (let y = 1; y < 199; y++) {
+            for (let x = 1; x < 199; x++) {
+                const idx = (y * 200 + x) * 4;
+                const tl = data[((y-1) * 200 + (x-1)) * 4];
+                const br = data[((y+1) * 200 + (x+1)) * 4];
+                const tr = data[((y-1) * 200 + (x+1)) * 4];
+                const bl = data[((y+1) * 200 + (x-1)) * 4];
+                
+                const diag1 = Math.abs(tl - br);
+                const diag2 = Math.abs(tr - bl);
+                
+                if (diag1 > 30 || diag2 > 30) diagonalEdges++;
+            }
+        }
+        patterns.diagonal = diagonalEdges / (198 * 198);
+        
+        // 텍스처 복잡도
+        let textureComplexity = 0;
+        for (let y = 1; y < 199; y++) {
+            for (let x = 1; x < 199; x++) {
+                const idx = (y * 200 + x) * 4;
+                const center = data[idx];
+                const neighbors = [
+                    data[((y-1) * 200 + x) * 4],
+                    data[((y+1) * 200 + x) * 4],
+                    data[(y * 200 + (x-1)) * 4],
+                    data[(y * 200 + (x+1)) * 4]
+                ];
+                
+                const diff = neighbors.reduce((sum, n) => sum + Math.abs(center - n), 0);
+                textureComplexity += diff;
+            }
+        }
+        patterns.textured = textureComplexity / (198 * 198 * 255 * 4);
+        
+        // 매끄러움 정도 (낮은 분산)
+        patterns.smooth = 1 - patterns.textured;
+        
+        return patterns;
+    }
+    
+    // 2. 금속 장식 감지
+    detectMetalHardware(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 150;
+        canvas.height = 150;
+        ctx.drawImage(imageElement, 0, 0, 150, 150);
+        
+        const imageData = ctx.getImageData(0, 0, 150, 150);
+        const data = imageData.data;
+        
+        let goldPixels = 0;
+        let silverPixels = 0;
+        let metallicPixels = 0;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            
+            // 금색 감지 (황금빛)
+            if (r > 180 && g > 140 && b < 100 && r > g && g > b) {
+                goldPixels++;
+            }
+            
+            // 은색 감지 (회색빛 금속)
+            if (Math.abs(r - g) < 20 && Math.abs(g - b) < 20 && r > 160 && r < 220) {
+                silverPixels++;
+            }
+            
+            // 일반 금속성 (높은 명도, 낮은 채도)
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const saturation = max === 0 ? 0 : (max - min) / max;
+            
+            if (max > 180 && saturation < 0.3) {
+                metallicPixels++;
+            }
+        }
+        
+        const totalPixels = 150 * 150;
+        return {
+            hasGold: goldPixels / totalPixels > 0.005,
+            hasSilver: silverPixels / totalPixels > 0.005,
+            metalRatio: metallicPixels / totalPixels,
+            dominantMetal: goldPixels > silverPixels ? 'gold' : 'silver'
+        };
+    }
+    
+    // 3. 로고/브랜드 마크 영역 감지
+    detectLogoRegions(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200;
+        canvas.height = 200;
+        ctx.drawImage(imageElement, 0, 0, 200, 200);
+        
+        const imageData = ctx.getImageData(0, 0, 200, 200);
+        
+        // 고대비 영역 찾기 (로고는 보통 고대비)
+        const contrastMap = this.calculateContrastMap(imageData);
+        
+        // 중앙 영역에 고대비 부분이 있는지 확인
+        let centerHighContrast = 0;
+        const centerX = 100, centerY = 100, radius = 50;
+        
+        for (let y = centerY - radius; y < centerY + radius; y++) {
+            for (let x = centerX - radius; x < centerX + radius; x++) {
+                if (contrastMap[y * 200 + x] > 0.7) {
+                    centerHighContrast++;
+                }
+            }
+        }
+        
+        return {
+            hasCenterLogo: centerHighContrast > (Math.PI * radius * radius * 0.05),
+            contrastScore: contrastMap.reduce((a, b) => a + b) / contrastMap.length
+        };
+    }
+    
+    // 대비 맵 계산
+    calculateContrastMap(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const contrastMap = [];
+        
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                const idx = (y * width + x) * 4;
+                const center = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                
+                let maxDiff = 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nIdx = ((y + dy) * width + (x + dx)) * 4;
+                        const neighbor = (data[nIdx] + data[nIdx+1] + data[nIdx+2]) / 3;
+                        maxDiff = Math.max(maxDiff, Math.abs(center - neighbor));
+                    }
+                }
+                
+                contrastMap.push(maxDiff / 255);
+            }
+        }
+        
+        return contrastMap;
+    }
+    
+    // 4. 향상된 색상 분석 (브랜드 시그니처 색상)
+    analyzeBrandColors(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 100;
+        canvas.height = 100;
+        ctx.drawImage(imageElement, 0, 0, 100, 100);
+        
+        const imageData = ctx.getImageData(0, 0, 100, 100);
+        const data = imageData.data;
+        
+        const colorClusters = {
+            brown: 0,
+            black: 0,
+            beige: 0,
+            red: 0,
+            green: 0,
+            navy: 0,
+            orange: 0,
+            gold: 0,
+            white: 0
+        };
+        
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            
+            // 브랜드별 시그니처 색상 매칭
+            if (r > 80 && r < 140 && g > 50 && g < 100 && b > 20 && b < 70) {
+                colorClusters.brown++;  // LV, Hermes
+            } else if (r < 40 && g < 40 && b < 40) {
+                colorClusters.black++;  // Chanel, Prada
+            } else if (r > 200 && g > 180 && b > 140) {
+                colorClusters.beige++;  // LV, Chanel
+            } else if (r > 180 && g < 80 && b < 80) {
+                colorClusters.red++;    // Gucci
+            } else if (r < 100 && g > 80 && b < 100) {
+                colorClusters.green++;  // Gucci
+            } else if (r < 50 && g < 50 && b > 80) {
+                colorClusters.navy++;   // Prada
+            } else if (r > 200 && g > 120 && g < 180 && b < 100) {
+                colorClusters.orange++; // Hermes
+            } else if (r > 180 && g > 140 && b < 100) {
+                colorClusters.gold++;   // 금속 장식
+            } else if (r > 200 && g > 200 && b > 200) {
+                colorClusters.white++;
+            }
+        }
+        
+        // 정규화
+        const total = 100 * 100;
+        for (let color in colorClusters) {
+            colorClusters[color] = colorClusters[color] / total;
+        }
+        
+        return colorClusters;
+    }
+    
+    // 5. ORB 특징점 추출 (간단한 버전)
+    extractORBKeypoints(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 128;
+        canvas.height = 128;
+        ctx.drawImage(imageElement, 0, 0, 128, 128);
+        
+        const imageData = ctx.getImageData(0, 0, 128, 128);
+        const gray = this.toGrayscale(imageData);
+        
+        // Harris 코너 검출 (ORB의 기반)
+        const corners = this.detectHarrisCorners(gray, 128, 128);
+        
+        // 상위 50개 특징점 선택
+        corners.sort((a, b) => b.response - a.response);
+        const keypoints = corners.slice(0, 50);
+        
+        // 각 특징점 주변의 BRIEF 디스크립터 계산
+        const descriptors = keypoints.map(kp => {
+            return this.computeBRIEFDescriptor(gray, kp.x, kp.y, 128, 128);
+        });
+        
+        return {
+            keypoints: keypoints,
+            descriptors: descriptors,
+            count: keypoints.length
+        };
+    }
+    
+    // Harris 코너 검출
+    detectHarrisCorners(gray, width, height) {
+        const corners = [];
+        const k = 0.04;
+        
+        for (let y = 5; y < height - 5; y++) {
+            for (let x = 5; x < width - 5; x++) {
+                let Ixx = 0, Iyy = 0, Ixy = 0;
+                
+                // 5x5 윈도우에서 그래디언트 계산
+                for (let wy = -2; wy <= 2; wy++) {
+                    for (let wx = -2; wx <= 2; wx++) {
+                        const idx = (y + wy) * width + (x + wx);
+                        
+                        const dx = (gray[idx + 1] || 0) - (gray[idx - 1] || 0);
+                        const dy = (gray[idx + width] || 0) - (gray[idx - width] || 0);
+                        
+                        Ixx += dx * dx;
+                        Iyy += dy * dy;
+                        Ixy += dx * dy;
+                    }
+                }
+                
+                // Harris 응답 계산
+                const det = Ixx * Iyy - Ixy * Ixy;
+                const trace = Ixx + Iyy;
+                const response = det - k * trace * trace;
+                
+                if (response > 1000) {  // 임계값
+                    corners.push({ x, y, response });
+                }
+            }
+        }
+        
+        return corners;
+    }
+    
+    // BRIEF 디스크립터 계산
+    computeBRIEFDescriptor(gray, x, y, width, height) {
+        const descriptor = [];
+        const pattern = [
+            [-2, -2], [2, 2], [-1, 3], [3, -1],
+            [0, -3], [0, 3], [-3, 0], [3, 0],
+            [-2, 1], [1, -2], [2, -1], [-1, 2]
+        ];
+        
+        for (let i = 0; i < pattern.length; i += 2) {
+            const x1 = Math.max(0, Math.min(width - 1, x + pattern[i][0]));
+            const y1 = Math.max(0, Math.min(height - 1, y + pattern[i][1]));
+            const x2 = Math.max(0, Math.min(width - 1, x + pattern[i + 1][0]));
+            const y2 = Math.max(0, Math.min(height - 1, y + pattern[i + 1][1]));
+            
+            const val1 = gray[y1 * width + x1] || 0;
+            const val2 = gray[y2 * width + x2] || 0;
+            
+            descriptor.push(val1 > val2 ? 1 : 0);
+        }
+        
+        return descriptor;
+    }
+    
+    // 그레이스케일 변환
+    toGrayscale(imageData) {
+        const data = imageData.data;
+        const gray = [];
+        
+        for (let i = 0; i < data.length; i += 4) {
+            gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        }
+        
+        return gray;
+    }
+    
+    // 6. 스티치 패턴 감지
+    detectStitchPatterns(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 150;
+        canvas.height = 150;
+        ctx.drawImage(imageElement, 0, 0, 150, 150);
+        
+        const imageData = ctx.getImageData(0, 0, 150, 150);
+        const edges = this.detectEdges(imageData);
+        
+        // 직선 패턴 감지 (Hough 변환 간소화)
+        let horizontalLines = 0;
+        let verticalLines = 0;
+        let diagonalLines = 0;
+        
+        // 수평선 감지
+        for (let y = 0; y < 150; y++) {
+            let consecutiveEdges = 0;
+            for (let x = 0; x < 150; x++) {
+                if (edges[y * 150 + x] > 0.5) {
+                    consecutiveEdges++;
+                    if (consecutiveEdges > 30) {
+                        horizontalLines++;
+                        break;
+                    }
+                } else {
+                    consecutiveEdges = 0;
+                }
+            }
+        }
+        
+        // 수직선 감지
+        for (let x = 0; x < 150; x++) {
+            let consecutiveEdges = 0;
+            for (let y = 0; y < 150; y++) {
+                if (edges[y * 150 + x] > 0.5) {
+                    consecutiveEdges++;
+                    if (consecutiveEdges > 30) {
+                        verticalLines++;
+                        break;
+                    }
+                } else {
+                    consecutiveEdges = 0;
+                }
+            }
+        }
+        
+        return {
+            hasStitching: (horizontalLines + verticalLines) > 5,
+            stitchDensity: (horizontalLines + verticalLines) / 300,
+            pattern: horizontalLines > verticalLines ? 'horizontal' : 'vertical'
+        };
+    }
+    
+    // 엣지 검출 (Canny 간소화)
+    detectEdges(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        const edges = [];
+        
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                const idx = (y * width + x) * 4;
+                
+                // Sobel 연산자
+                const gx = 
+                    -1 * data[((y-1) * width + (x-1)) * 4] +
+                     1 * data[((y-1) * width + (x+1)) * 4] +
+                    -2 * data[(y * width + (x-1)) * 4] +
+                     2 * data[(y * width + (x+1)) * 4] +
+                    -1 * data[((y+1) * width + (x-1)) * 4] +
+                     1 * data[((y+1) * width + (x+1)) * 4];
+                
+                const gy = 
+                    -1 * data[((y-1) * width + (x-1)) * 4] +
+                    -2 * data[((y-1) * width + x) * 4] +
+                    -1 * data[((y-1) * width + (x+1)) * 4] +
+                     1 * data[((y+1) * width + (x-1)) * 4] +
+                     2 * data[((y+1) * width + x) * 4] +
+                     1 * data[((y+1) * width + (x+1)) * 4];
+                
+                const magnitude = Math.sqrt(gx * gx + gy * gy);
+                edges.push(magnitude / 1020);  // 정규화
+            }
+        }
+        
+        return edges;
+    }
+    
+    // 통합 특징 추출
+    async extractAllFeatures(imageElement) {
+        // 기본 특징
+        const aspectRatio = imageElement.width / imageElement.height;
+        
+        // 브랜드 특화 특징
+        const brandPatterns = this.detectBrandPatterns(imageElement);
+        const metalHardware = this.detectMetalHardware(imageElement);
+        const logoRegions = this.detectLogoRegions(imageElement);
+        const brandColors = this.analyzeBrandColors(imageElement);
+        const orbFeatures = this.extractORBKeypoints(imageElement);
+        const stitchPatterns = this.detectStitchPatterns(imageElement);
+        
+        // 브랜드 추정
+        const estimatedBrand = this.estimateBrand(
+            brandColors,
+            brandPatterns,
+            metalHardware,
+            aspectRatio
+        );
+        
+        return {
+            basic: { aspectRatio },
+            patterns: brandPatterns,
+            metal: metalHardware,
+            logo: logoRegions,
+            colors: brandColors,
+            orb: orbFeatures,
+            stitch: stitchPatterns,
+            brand: estimatedBrand
+        };
+    }
+    
+    // 브랜드 추정
+    estimateBrand(colors, patterns, metal, aspectRatio) {
+        const scores = {};
+        
+        // Louis Vuitton 점수
+        scores.louis_vuitton = 0;
+        if (colors.brown > 0.2 && colors.beige > 0.1) scores.louis_vuitton += 0.3;
+        if (patterns.repetitive > 0.5) scores.louis_vuitton += 0.4;
+        if (metal.hasGold) scores.louis_vuitton += 0.2;
+        if (Math.abs(aspectRatio - 1.2) < 0.3) scores.louis_vuitton += 0.1;
+        
+        // Chanel 점수
+        scores.chanel = 0;
+        if (colors.black > 0.3) scores.chanel += 0.3;
+        if (patterns.diagonal > 0.3) scores.chanel += 0.4;
+        if (metal.hasGold || metal.hasSilver) scores.chanel += 0.2;
+        if (Math.abs(aspectRatio - 1.4) < 0.3) scores.chanel += 0.1;
+        
+        // Gucci 점수
+        scores.gucci = 0;
+        if (colors.green > 0.05 && colors.red > 0.05) scores.gucci += 0.4;
+        if (patterns.horizontal > 0.2) scores.gucci += 0.3;
+        if (metal.hasGold) scores.gucci += 0.2;
+        
+        // Prada 점수
+        scores.prada = 0;
+        if (colors.black > 0.3 || colors.navy > 0.2) scores.prada += 0.3;
+        if (patterns.textured > 0.4) scores.prada += 0.3;
+        if (metal.hasSilver) scores.prada += 0.2;
+        if (patterns.smooth < 0.3) scores.prada += 0.2;
+        
+        // Hermes 점수
+        scores.hermes = 0;
+        if (colors.orange > 0.1 || colors.brown > 0.2) scores.hermes += 0.3;
+        if (patterns.smooth > 0.6) scores.hermes += 0.4;
+        if (metal.hasGold) scores.hermes += 0.2;
+        
+        // 최고 점수 브랜드 찾기
+        let maxScore = 0;
+        let estimatedBrand = 'unknown';
+        
+        for (const [brand, score] of Object.entries(scores)) {
+            if (score > maxScore && score > 0.3) {  // 최소 임계값 0.3
+                maxScore = score;
+                estimatedBrand = brand;
+            }
+        }
+        
+        return {
+            name: estimatedBrand,
+            confidence: maxScore,
+            scores: scores
+        };
+    }
+    
+    // 유사도 계산
+    calculateSimilarity(features1, features2) {
+        let similarity = 0;
+        let weights = {
+            aspectRatio: 0.05,
+            patterns: 0.25,
+            colors: 0.20,
+            metal: 0.15,
+            logo: 0.10,
+            orb: 0.15,
+            stitch: 0.05,
+            brand: 0.05
+        };
+        
+        // 브랜드가 같으면 가중치 조정
+        if (features1.brand.name !== 'unknown' && 
+            features1.brand.name === features2.brand.name) {
+            weights.brand = 0.15;
+            weights.patterns = 0.30;
+            weights.colors = 0.25;
+        }
+        
+        // 1. 종횡비 유사도
+        const aspectDiff = Math.abs(features1.basic.aspectRatio - features2.basic.aspectRatio);
+        const aspectSim = 1 / (1 + aspectDiff * 2);
+        similarity += aspectSim * weights.aspectRatio;
+        
+        // 2. 패턴 유사도
+        let patternSim = 0;
+        for (const key in features1.patterns) {
+            const diff = Math.abs(features1.patterns[key] - features2.patterns[key]);
+            patternSim += (1 - diff);
+        }
+        patternSim /= Object.keys(features1.patterns).length;
+        similarity += patternSim * weights.patterns;
+        
+        // 3. 색상 유사도
+        let colorSim = 0;
+        for (const color in features1.colors) {
+            const diff = Math.abs(features1.colors[color] - features2.colors[color]);
+            colorSim += (1 - diff);
+        }
+        colorSim /= Object.keys(features1.colors).length;
+        similarity += colorSim * weights.colors;
+        
+        // 4. 금속 장식 유사도
+        let metalSim = 0;
+        if (features1.metal.hasGold === features2.metal.hasGold) metalSim += 0.3;
+        if (features1.metal.hasSilver === features2.metal.hasSilver) metalSim += 0.3;
+        if (features1.metal.dominantMetal === features2.metal.dominantMetal) metalSim += 0.2;
+        metalSim += (1 - Math.abs(features1.metal.metalRatio - features2.metal.metalRatio)) * 0.2;
+        similarity += metalSim * weights.metal;
+        
+        // 5. 로고 유사도
+        let logoSim = 0;
+        if (features1.logo.hasCenterLogo === features2.logo.hasCenterLogo) logoSim += 0.5;
+        logoSim += (1 - Math.abs(features1.logo.contrastScore - features2.logo.contrastScore)) * 0.5;
+        similarity += logoSim * weights.logo;
+        
+        // 6. ORB 특징점 매칭
+        let orbSim = 0;
+        if (features1.orb.descriptors.length > 0 && features2.orb.descriptors.length > 0) {
+            let matches = 0;
+            const threshold = 3;  // 해밍 거리 임계값
+            
+            for (const desc1 of features1.orb.descriptors) {
+                for (const desc2 of features2.orb.descriptors) {
+                    let distance = 0;
+                    for (let i = 0; i < desc1.length; i++) {
+                        if (desc1[i] !== desc2[i]) distance++;
+                    }
+                    if (distance <= threshold) {
+                        matches++;
+                        break;
+                    }
+                }
+            }
+            
+            orbSim = matches / Math.min(features1.orb.descriptors.length, features2.orb.descriptors.length);
+        }
+        similarity += orbSim * weights.orb;
+        
+        // 7. 스티치 패턴 유사도
+        let stitchSim = 0;
+        if (features1.stitch.hasStitching === features2.stitch.hasStitching) stitchSim += 0.5;
+        if (features1.stitch.pattern === features2.stitch.pattern) stitchSim += 0.3;
+        stitchSim += (1 - Math.abs(features1.stitch.stitchDensity - features2.stitch.stitchDensity)) * 0.2;
+        similarity += stitchSim * weights.stitch;
+        
+        // 8. 브랜드 유사도
+        if (features1.brand.name !== 'unknown' && features2.brand.name !== 'unknown') {
+            if (features1.brand.name === features2.brand.name) {
+                similarity += weights.brand;
+            } else {
+                // 다른 브랜드면 페널티
+                similarity *= 0.7;
+            }
+        }
+        
+        return Math.max(0, Math.min(1, similarity));
+    }
+
+    async searchSimilarImages() {
+        if (!this.uploadedImage) {
+            alert('먼저 이미지를 업로드해주세요.');
+            return;
+        }
+
+        if (this.imageDatabase.length === 0) {
+            alert('인덱싱된 이미지가 없습니다. 먼저 이미지를 인덱싱해주세요.');
+            return;
+        }
+
+        this.showLoading('브랜드 가방을 검색하는 중...');
+        console.log('🔍 검색 시작...');
+
+        try {
+            const img = document.getElementById('preview-image');
+            const queryFeatures = await this.extractAllFeatures(img);
+            
+            console.log('🎯 감지된 브랜드:', queryFeatures.brand.name, 
+                       `(신뢰도: ${(queryFeatures.brand.confidence * 100).toFixed(1)}%)`);
+
+            const results = this.imageDatabase.map((item) => {
+                const similarity = this.calculateSimilarity(queryFeatures, item.features);
+                return {
+                    ...item,
+                    similarity: similarity,
+                    brandMatch: item.features.brand.name === queryFeatures.brand.name
+                };
+            });
+
+            results.sort((a, b) => {
+                // 브랜드 일치 우선, 그 다음 유사도
+                if (a.brandMatch !== b.brandMatch) {
+                    return b.brandMatch - a.brandMatch;
+                }
+                return b.similarity - a.similarity;
+            });
+
+            const filteredResults = results.filter(r => r.similarity < 0.98);
+            
+            this.displayResults(filteredResults.slice(0, 30));
+            
+            console.log(`✅ 검색 완료: ${filteredResults.length}개 결과`);
+
+        } catch (error) {
+            console.error('❌ 검색 중 오류:', error);
+            alert('검색 중 오류가 발생했습니다.');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    displayResults(results) {
+        const resultsGrid = document.getElementById('results-grid');
+        const resultCount = document.getElementById('result-count');
+        
+        if (resultCount) resultCount.textContent = `(${results.length}개)`;
+        if (!resultsGrid) return;
+        
+        resultsGrid.innerHTML = '';
+
+        results.forEach((result, index) => {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+            
+            const similarity = Math.round(result.similarity * 100);
+            const brand = result.features.brand.name;
+            const brandConf = Math.round(result.features.brand.confidence * 100);
+            
+            const img = document.createElement('img');
+            img.className = 'result-image';
+            img.alt = result.name;
+            img.loading = 'lazy';
+            
+            this.loadResultImage(img, result.path, result.name);
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'result-info';
+            
+            const displayName = result.name.length > 30 
+                ? result.name.substring(0, 27) + '...' 
+                : result.name;
+            
+            let brandBadge = '';
+            if (brand !== 'unknown') {
+                const brandColors = {
+                    'louis_vuitton': '#8B4513',
+                    'chanel': '#000000',
+                    'gucci': '#006400',
+                    'prada': '#000080',
+                    'hermes': '#FF8C00'
+                };
+                brandBadge = `<span style="background: ${brandColors[brand] || '#666'}; 
+                                           color: white; 
+                                           padding: 2px 6px; 
+                                           border-radius: 3px; 
+                                           font-size: 10px;">
+                                ${brand.replace('_', ' ').toUpperCase()} ${brandConf}%
+                              </span>`;
+            }
+            
+            infoDiv.innerHTML = `
+                <div class="result-filename" title="${result.name}">${displayName}</div>
+                <div class="result-similarity">
+                    유사도: <strong>${similarity}%</strong>
+                    ${brandBadge}
+                </div>
+            `;
+            
+            resultItem.appendChild(img);
+            resultItem.appendChild(infoDiv);
+            
+            resultItem.addEventListener('click', async () => {
+                try {
+                    await invoke('open_file_location', { path: result.path });
+                } catch (error) {
+                    console.error('파일 위치 열기 실패:', error);
+                }
+            });
+
+            resultsGrid.appendChild(resultItem);
+        });
+
+        const resultsSection = document.getElementById('results-section');
+        if (resultsSection) resultsSection.style.display = 'block';
+    }
+
+    async loadResultImage(imgElement, filePath, fileName) {
+        try {
+            let normalizedPath = filePath.replace(/\\/g, '/');
+            const cleanFileName = fileName.trim();
+            
+            if (cleanFileName.includes(' ')) {
+                const dirPath = normalizedPath.substring(0, normalizedPath.lastIndexOf('/'));
+                normalizedPath = `${dirPath}/${cleanFileName}`;
+            }
+            
+            const assetUrl = convertFileSrc(normalizedPath);
+            imgElement.src = assetUrl;
+            
+            imgElement.onerror = async () => {
+                try {
+                    const imageData = await readBinaryFile(filePath);
+                    const ext = fileName.split('.').pop().toLowerCase();
+                    const mimeTypes = {
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'gif': 'image/gif',
+                        'webp': 'image/webp'
+                    };
+                    
+                    const blob = new Blob([imageData], { type: mimeTypes[ext] || 'image/jpeg' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    imgElement.src = url;
+                    
+                    imgElement.onload = () => {
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    };
+                } catch (error) {
+                    console.error(`이미지 읽기 실패: ${filePath}`, error);
+                    imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjEwMCIgeT0iMTAwIiBzdHlsZT0iZmlsbDojYWFhO2ZvbnQtd2VpZ2h0OmJvbGQ7Zm9udC1zaXplOjEzcHg7Zm9udC1mYW1pbHk6QXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWY7ZG9taW5hbnQtYmFzZWxpbmU6Y2VudHJhbCI+로드 실패</text></svg>';
+                }
+            };
+        } catch (error) {
+            console.error(`이미지 처리 오류: ${filePath}`, error);
+        }
+    }
+
+    async selectFolder() {
+        try {
+            const selected = await open({
+                directory: true,
+                multiple: false,
+                title: '이미지 폴더 선택'
+            });
+
+            if (selected) {
+                await this.indexFolder(selected);
+            }
+        } catch (error) {
+            console.error('폴더 선택 오류:', error);
+        }
+    }
+
+    async indexFolder(folderPath) {
+        this.showLoading('브랜드 가방 이미지를 분석하는 중...');
+
+        try {
+            const entries = await readDir(folderPath, { recursive: true });
+            const imageFiles = entries.filter(entry => {
+                if (!entry.name) return false;
+                const ext = entry.name.toLowerCase().split('.').pop();
+                return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+            });
+
+            const folderPathEl = document.getElementById('folder-path');
+            const imageCountEl = document.getElementById('image-count');
+            const folderInfoEl = document.getElementById('folder-info');
+            
+            if (folderPathEl) folderPathEl.textContent = folderPath;
+            if (imageCountEl) imageCountEl.textContent = imageFiles.length;
+            if (folderInfoEl) folderInfoEl.style.display = 'block';
+
+            if (imageFiles.length === 0) {
+                alert('선택한 폴더에 이미지가 없습니다.');
+                this.hideLoading();
+                return;
+            }
+
+            const progressEl = document.getElementById('indexing-progress');
+            const resultsEl = document.getElementById('index-results');
+            
+            if (progressEl) progressEl.style.display = 'block';
+            if (resultsEl) resultsEl.style.display = 'none';
+
+            const newDatabase = [];
+            const totalImages = imageFiles.length;
+            let processedCount = 0;
+            let errorCount = 0;
+            
+            // 브랜드별 통계
+            const brandStats = {};
+
+            const batchSize = 3;  // 복잡한 특징 추출로 인해 배치 크기 축소
+            
+            for (let i = 0; i < imageFiles.length; i += batchSize) {
+                const batch = imageFiles.slice(i, i + batchSize);
+                
+                await Promise.all(batch.map(async (file) => {
+                    try {
+                        const imageData = await readBinaryFile(file.path);
+                        const blob = new Blob([imageData]);
+                        const imageUrl = URL.createObjectURL(blob);
+
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                            img.src = imageUrl;
+                        });
+
+                        const features = await this.extractAllFeatures(img);
+                        
+                        // 브랜드 통계 업데이트
+                        const brand = features.brand.name;
+                        if (!brandStats[brand]) brandStats[brand] = 0;
+                        brandStats[brand]++;
+                        
+                        newDatabase.push({
+                            path: file.path,
+                            name: file.name || 'Unknown',
+                            features: features
+                        });
+
+                        URL.revokeObjectURL(imageUrl);
+                        processedCount++;
+
+                    } catch (error) {
+                        console.error(`이미지 처리 실패: ${file.name}`, error);
+                        errorCount++;
+                    }
+                }));
+
+                const progress = Math.round((Math.min(i + batchSize, totalImages) / totalImages) * 100);
+                const fillEl = document.getElementById('progress-fill');
+                const textEl = document.getElementById('progress-text');
+                
+                if (fillEl) fillEl.style.width = `${progress}%`;
+                if (textEl) textEl.textContent = `${Math.min(i + batchSize, totalImages)} / ${totalImages}`;
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            this.imageDatabase = newDatabase;
+            await this.saveDatabase();
+
+            const fillEl = document.getElementById('progress-fill');
+            const textEl = document.getElementById('progress-text');
+            
+            if (fillEl) fillEl.style.width = '100%';
+            if (textEl) textEl.textContent = `${totalImages} / ${totalImages}`;
+            
+            // 브랜드 통계 출력
+            console.log('📊 브랜드 분석 결과:');
+            for (const [brand, count] of Object.entries(brandStats)) {
+                const percentage = ((count / processedCount) * 100).toFixed(1);
+                console.log(`  ${brand}: ${count}개 (${percentage}%)`);
+            }
+            
+            setTimeout(() => {
+                if (progressEl) progressEl.style.display = 'none';
+                if (resultsEl) resultsEl.style.display = 'block';
+                
+                const countEl = document.getElementById('indexed-count');
+                if (countEl) countEl.textContent = processedCount;
+                
+                if (errorCount > 0) {
+                    alert(`✅ 인덱싱 완료!\n성공: ${processedCount}개\n실패: ${errorCount}개`);
+                } else {
+                    console.log(`✅ 인덱싱 완료: ${processedCount}개 성공`);
+                }
+            }, 500);
+
+        } catch (error) {
+            console.error('인덱싱 오류:', error);
+            alert('인덱싱 중 오류가 발생했습니다.');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async saveDatabase() {
+        try {
+            const dbData = {
+                version: 8,
+                timestamp: Date.now(),
+                appVersion: this.version,
+                featureVersion: 'brand_specialized',
+                data: this.imageDatabase
+            };
+            
+            await this.storage.setItem('brandDatabase', dbData);
+            console.log(`💾 데이터베이스 저장 완료 (v${dbData.version})`);
+        } catch (error) {
+            console.error('❌ 데이터베이스 저장 실패:', error);
+        }
+    }
+
+    async loadDatabase() {
+        try {
+            const stored = await this.storage.getItem('brandDatabase');
+            
+            if (stored) {
+                if (stored.version === 8 && stored.featureVersion === 'brand_specialized') {
+                    this.imageDatabase = stored.data || [];
+                    console.log(`📂 ${this.imageDatabase.length}개의 이미지 로드됨`);
+                } else {
+                    console.log('⚠️ 이전 버전 데이터베이스. 재인덱싱 필요');
+                    this.imageDatabase = [];
+                    await this.storage.clear();
+                }
+            }
+        } catch (error) {
+            console.error('❌ 데이터베이스 로드 실패:', error);
+            this.imageDatabase = [];
+        }
+    }
+
+    showLoading(text = '처리 중...') {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            const loadingText = overlay.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = text;
+            overlay.style.display = 'flex';
+        }
+    }
+
+    hideLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
+}
+
+// 앱 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 DOM 로드 완료, 앱 초기화 시작...');
+    
+    const app = new BrandBagSearchSystem();
+    
+    window.brandApp = {
+        version: () => {
+            console.log(`버전: v${app.version}`);
+            console.log(`DB 크기: ${app.imageDatabase.length} 개`);
+            console.log(`특징: 브랜드 패턴, 금속 장식, 로고, ORB, 스티치`);
+        },
+        clearDB: async () => {
+            app.imageDatabase = [];
+            await app.storage.clear();
+            console.log('✅ DB 초기화 완료');
+        },
+        testFeatures: async () => {
+            if (app.uploadedImage) {
+                const img = document.getElementById('preview-image');
+                const features = await app.extractAllFeatures(img);
+                console.log('특징 추출 결과:', features);
+                console.log(`추정 브랜드: ${features.brand.name} (${(features.brand.confidence * 100).toFixed(1)}%)`);
+            } else {
+                console.log('먼저 이미지를 업로드하세요');
+            }
+        },
+        getBrandStats: () => {
+            const stats = {};
+            app.imageDatabase.forEach(item => {
+                const brand = item.features.brand.name;
+                if (!stats[brand]) stats[brand] = 0;
+                stats[brand]++;
+            });
+            console.log('브랜드 통계:', stats);
+            return stats;
+        }
+    };
+    
+    console.log('%c👜 Brand Bag Search v8.0 초기화 완료!', 'color: #ff6b6b; font-size: 16px; font-weight: bold;');
+    console.log('%c브랜드 가방 특화 검색 시스템', 'color: #666; font-style: italic;');
+    console.log('특징:');
+    console.log('  ✅ 브랜드별 패턴 인식 (모노그램, 퀼팅, 사피아노 등)');
+    console.log('  ✅ 금속 장식 감지 (금/은)');
+    console.log('  ✅ 로고/브랜드 마크 영역 감지');
+    console.log('  ✅ 브랜드 시그니처 색상 분석');
+    console.log('  ✅ ORB 특징점 매칭');
+    console.log('  ✅ 스티치 패턴 감지');
+    console.log('지원 브랜드:');
+    console.log('  Louis Vuitton, Chanel, Gucci, Prada, Hermes');
+    console.log('콘솔 명령어:');
+    console.log('  brandApp.version() - 버전 정보');
+    console.log('  brandApp.clearDB() - DB 초기화');
+    console.log('  brandApp.testFeatures() - 특징 추출 테스트');
+    console.log('  brandApp.getBrandStats() - 브랜드 통계');
+});

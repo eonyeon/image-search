@@ -1,0 +1,2 @@
+# This file ensures the icons directory is tracked by git
+# Actual icon files will be generated during the build process

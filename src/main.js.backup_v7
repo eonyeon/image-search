@@ -1,0 +1,950 @@
+import { invoke } from '@tauri-apps/api/tauri';
+import { open } from '@tauri-apps/api/dialog';
+import { readDir, readBinaryFile } from '@tauri-apps/api/fs';
+import { convertFileSrc } from '@tauri-apps/api/tauri';
+import localforage from 'localforage';
+
+// 순수 컴퓨터 비전 기반 가방 검색 시스템 (딥러닝 모델 없음)
+class PureVisionBagSearch {
+    constructor() {
+        this.currentMode = 'search';
+        this.uploadedImage = null;
+        this.imageDatabase = [];
+        this.version = '7.0.0';
+        
+        // LocalForage 설정
+        this.storage = localforage.createInstance({
+            name: 'BagSearchDB',
+            storeName: 'bagVectorsV7'
+        });
+        
+        console.log(`👜 Pure Vision Bag Search v${this.version} - 딥러닝 없는 순수 비전 시스템`);
+        this.init();
+    }
+
+    async init() {
+        console.log('✅ 시스템 초기화 중...');
+        
+        // 기존 데이터베이스 로드
+        await this.loadDatabase();
+        
+        // 이벤트 리스너 설정
+        this.setupEventListeners();
+        
+        console.log('✅ 초기화 완료!');
+    }
+
+    setupEventListeners() {
+        console.log('🔧 이벤트 리스너 설정 중...');
+        
+        // 모드 전환
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const mode = e.currentTarget.dataset.mode;
+                this.switchMode(mode);
+                console.log(`모드 전환: ${mode}`);
+            });
+        });
+
+        // 파일 업로드
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+
+        if (uploadArea && fileInput) {
+            uploadArea.addEventListener('click', () => {
+                console.log('업로드 영역 클릭');
+                fileInput.click();
+            });
+            
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    this.handleImageUpload(files[0]);
+                }
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log('파일 선택됨:', file.name);
+                    this.handleImageUpload(file);
+                }
+            });
+        }
+
+        // 검색 버튼
+        const searchBtn = document.getElementById('search-btn');
+        if (searchBtn) {
+            searchBtn.addEventListener('click', () => {
+                console.log('검색 버튼 클릭');
+                this.searchSimilarImages();
+            });
+        }
+
+        // 폴더 선택 버튼
+        const selectFolderBtn = document.getElementById('select-folder-btn');
+        if (selectFolderBtn) {
+            selectFolderBtn.addEventListener('click', () => {
+                console.log('폴더 선택 버튼 클릭');
+                this.selectFolder();
+            });
+        }
+
+        // 데이터베이스 초기화 버튼
+        const clearDbBtn = document.getElementById('clear-database-btn');
+        if (clearDbBtn) {
+            clearDbBtn.addEventListener('click', async () => {
+                console.log('DB 초기화 버튼 클릭');
+                if (confirm('모든 인덱싱된 데이터가 삭제됩니다. 계속하시겠습니까?')) {
+                    this.imageDatabase = [];
+                    await this.storage.clear();
+                    alert('데이터베이스가 초기화되었습니다.');
+                    console.log('🗑️ 데이터베이스 초기화 완료');
+                }
+            });
+        }
+        
+        console.log('✅ 이벤트 리스너 설정 완료');
+    }
+
+    switchMode(mode) {
+        this.currentMode = mode;
+        
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        document.querySelectorAll('.mode-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        
+        const targetMode = document.getElementById(`${mode}-mode`);
+        if (targetMode) {
+            targetMode.classList.add('active');
+        }
+    }
+
+    async handleImageUpload(file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const img = new Image();
+            img.onload = async () => {
+                this.uploadedImage = {
+                    file: file,
+                    dataUrl: e.target.result,
+                    width: img.width,
+                    height: img.height
+                };
+
+                const previewImage = document.getElementById('preview-image');
+                const previewSection = document.getElementById('preview-section');
+                const resultsSection = document.getElementById('results-section');
+                
+                if (previewImage) previewImage.src = e.target.result;
+                if (previewSection) previewSection.style.display = 'block';
+                if (resultsSection) resultsSection.style.display = 'none';
+                
+                console.log('✅ 이미지 업로드 완료:', file.name);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // === 순수 컴퓨터 비전 특징 추출 ===
+    
+    // 색상 히스토그램 추출
+    extractColorHistogram(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 200;
+        canvas.height = 200;
+        ctx.drawImage(imageElement, 0, 0, 200, 200);
+        
+        const imageData = ctx.getImageData(0, 0, 200, 200);
+        const data = imageData.data;
+        
+        // RGB 히스토그램 (각 채널 32 bins)
+        const bins = 32;
+        const histogram = {
+            r: new Array(bins).fill(0),
+            g: new Array(bins).fill(0),
+            b: new Array(bins).fill(0)
+        };
+        
+        for (let i = 0; i < data.length; i += 4) {
+            const rBin = Math.min(Math.floor(data[i] / 256 * bins), bins - 1);
+            const gBin = Math.min(Math.floor(data[i + 1] / 256 * bins), bins - 1);
+            const bBin = Math.min(Math.floor(data[i + 2] / 256 * bins), bins - 1);
+            
+            histogram.r[rBin]++;
+            histogram.g[gBin]++;
+            histogram.b[bBin]++;
+        }
+        
+        // 정규화
+        const total = (200 * 200);
+        const normalized = [];
+        for (let i = 0; i < bins; i++) {
+            normalized.push(histogram.r[i] / total);
+            normalized.push(histogram.g[i] / total);
+            normalized.push(histogram.b[i] / total);
+        }
+        
+        return normalized;
+    }
+
+    // HOG (Histogram of Oriented Gradients) 특징 추출
+    extractHOGFeatures(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 128x128로 리사이즈
+        canvas.width = 128;
+        canvas.height = 128;
+        ctx.drawImage(imageElement, 0, 0, 128, 128);
+        
+        const imageData = ctx.getImageData(0, 0, 128, 128);
+        const data = imageData.data;
+        
+        // 그레이스케일 변환
+        const gray = [];
+        for (let i = 0; i < data.length; i += 4) {
+            gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        }
+        
+        // 그래디언트 계산
+        const gradients = this.calculateGradients(gray, 128, 128);
+        
+        // 8x8 셀로 나누고 각 셀에서 9-bin 히스토그램 생성
+        const cellSize = 16;
+        const numCells = 128 / cellSize;
+        const numBins = 9;
+        const hogFeatures = [];
+        
+        for (let cy = 0; cy < numCells; cy++) {
+            for (let cx = 0; cx < numCells; cx++) {
+                const cellHist = new Array(numBins).fill(0);
+                
+                for (let y = 0; y < cellSize; y++) {
+                    for (let x = 0; x < cellSize; x++) {
+                        const px = cx * cellSize + x;
+                        const py = cy * cellSize + y;
+                        const idx = py * 128 + px;
+                        
+                        const magnitude = gradients.magnitude[idx];
+                        const direction = gradients.direction[idx];
+                        
+                        // 방향을 9개 빈으로 양자화
+                        const bin = Math.floor(direction / (Math.PI * 2) * numBins) % numBins;
+                        cellHist[bin] += magnitude;
+                    }
+                }
+                
+                // 정규화
+                const sum = cellHist.reduce((a, b) => a + b, 0.001);
+                for (let i = 0; i < numBins; i++) {
+                    hogFeatures.push(cellHist[i] / sum);
+                }
+            }
+        }
+        
+        return hogFeatures;
+    }
+
+    // 그래디언트 계산
+    calculateGradients(gray, width, height) {
+        const magnitude = [];
+        const direction = [];
+        
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                const idx = y * width + x;
+                
+                // Sobel 필터
+                const gx = gray[idx + 1] - gray[idx - 1];
+                const gy = gray[idx + width] - gray[idx - width];
+                
+                magnitude.push(Math.sqrt(gx * gx + gy * gy));
+                direction.push(Math.atan2(gy, gx) + Math.PI);
+            }
+        }
+        
+        return { magnitude, direction };
+    }
+
+    // LBP (Local Binary Pattern) 특징 추출
+    extractLBPFeatures(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 100;
+        canvas.height = 100;
+        ctx.drawImage(imageElement, 0, 0, 100, 100);
+        
+        const imageData = ctx.getImageData(0, 0, 100, 100);
+        const data = imageData.data;
+        
+        // 그레이스케일 변환
+        const gray = [];
+        for (let i = 0; i < data.length; i += 4) {
+            gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+        }
+        
+        // LBP 히스토그램
+        const lbpHist = new Array(256).fill(0);
+        
+        for (let y = 1; y < 99; y++) {
+            for (let x = 1; x < 99; x++) {
+                const center = gray[y * 100 + x];
+                let lbpValue = 0;
+                
+                // 8개 이웃 픽셀
+                const neighbors = [
+                    gray[(y-1) * 100 + (x-1)], gray[(y-1) * 100 + x], gray[(y-1) * 100 + (x+1)],
+                    gray[y * 100 + (x-1)],                             gray[y * 100 + (x+1)],
+                    gray[(y+1) * 100 + (x-1)], gray[(y+1) * 100 + x], gray[(y+1) * 100 + (x+1)]
+                ];
+                
+                for (let i = 0; i < 8; i++) {
+                    if (neighbors[i] >= center) {
+                        lbpValue |= (1 << i);
+                    }
+                }
+                
+                lbpHist[lbpValue]++;
+            }
+        }
+        
+        // 정규화 및 차원 축소 (256 -> 59 uniform patterns)
+        const uniformLBP = this.getUniformLBP(lbpHist);
+        const total = uniformLBP.reduce((a, b) => a + b, 0.001);
+        
+        return uniformLBP.map(val => val / total);
+    }
+
+    // Uniform LBP 패턴 추출
+    getUniformLBP(histogram) {
+        const uniform = [];
+        
+        // Uniform 패턴만 추출 (전환이 2번 이하)
+        for (let i = 0; i < 256; i++) {
+            const binary = i.toString(2).padStart(8, '0');
+            let transitions = 0;
+            
+            for (let j = 0; j < 8; j++) {
+                if (binary[j] !== binary[(j + 1) % 8]) {
+                    transitions++;
+                }
+            }
+            
+            if (transitions <= 2) {
+                uniform.push(histogram[i]);
+            }
+        }
+        
+        return uniform;
+    }
+
+    // 형태 특징 추출
+    extractShapeFeatures(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 100;
+        canvas.height = 100;
+        ctx.drawImage(imageElement, 0, 0, 100, 100);
+        
+        const imageData = ctx.getImageData(0, 0, 100, 100);
+        
+        // Hu 모멘트 계산 (형태 불변 특징)
+        const moments = this.calculateHuMoments(imageData);
+        
+        // 추가 형태 특징
+        const aspectRatio = imageElement.width / imageElement.height;
+        const compactness = this.calculateCompactness(imageData);
+        const symmetry = this.calculateSymmetry(imageData);
+        
+        return [...moments, aspectRatio, compactness, symmetry];
+    }
+
+    // Hu 모멘트 계산
+    calculateHuMoments(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        
+        // 이진화
+        const binary = [];
+        for (let i = 0; i < data.length; i += 4) {
+            const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            binary.push(gray > 128 ? 1 : 0);
+        }
+        
+        // 중심 모멘트 계산
+        let m00 = 0, m10 = 0, m01 = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const val = binary[y * width + x];
+                m00 += val;
+                m10 += x * val;
+                m01 += y * val;
+            }
+        }
+        
+        const xc = m10 / (m00 + 0.001);
+        const yc = m01 / (m00 + 0.001);
+        
+        // 정규화된 중심 모멘트
+        let mu20 = 0, mu02 = 0, mu11 = 0, mu30 = 0, mu03 = 0, mu21 = 0, mu12 = 0;
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const val = binary[y * width + x];
+                const dx = x - xc;
+                const dy = y - yc;
+                
+                mu20 += dx * dx * val;
+                mu02 += dy * dy * val;
+                mu11 += dx * dy * val;
+                mu30 += dx * dx * dx * val;
+                mu03 += dy * dy * dy * val;
+                mu21 += dx * dx * dy * val;
+                mu12 += dx * dy * dy * val;
+            }
+        }
+        
+        // Hu 불변 모멘트 계산 (7개)
+        const norm = Math.pow(m00, 2) + 0.001;
+        const nu20 = mu20 / norm;
+        const nu02 = mu02 / norm;
+        const nu11 = mu11 / norm;
+        const nu30 = mu30 / Math.pow(m00, 2.5) + 0.001;
+        const nu03 = mu03 / Math.pow(m00, 2.5) + 0.001;
+        const nu21 = mu21 / Math.pow(m00, 2.5) + 0.001;
+        const nu12 = mu12 / Math.pow(m00, 2.5) + 0.001;
+        
+        const h1 = nu20 + nu02;
+        const h2 = Math.pow(nu20 - nu02, 2) + 4 * Math.pow(nu11, 2);
+        const h3 = Math.pow(nu30 - 3 * nu12, 2) + Math.pow(3 * nu21 - nu03, 2);
+        const h4 = Math.pow(nu30 + nu12, 2) + Math.pow(nu21 + nu03, 2);
+        const h5 = (nu30 - 3 * nu12) * (nu30 + nu12) * 
+                  (Math.pow(nu30 + nu12, 2) - 3 * Math.pow(nu21 + nu03, 2));
+        const h6 = (nu20 - nu02) * 
+                  (Math.pow(nu30 + nu12, 2) - Math.pow(nu21 + nu03, 2));
+        const h7 = (3 * nu21 - nu03) * (nu30 + nu12) * 
+                  (Math.pow(nu30 + nu12, 2) - 3 * Math.pow(nu21 + nu03, 2));
+        
+        // 로그 변환으로 스케일 정규화
+        return [h1, h2, h3, h4, h5, h6, h7].map(h => 
+            Math.sign(h) * Math.log(Math.abs(h) + 1)
+        );
+    }
+
+    // 컴팩트니스 계산
+    calculateCompactness(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        
+        let area = 0;
+        let perimeter = 0;
+        
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                const idx = (y * width + x) * 4;
+                const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+                
+                if (gray > 128) {
+                    area++;
+                    
+                    // 엣지 체크
+                    const neighbors = [
+                        (data[((y-1) * width + x) * 4] + data[((y-1) * width + x) * 4 + 1] + data[((y-1) * width + x) * 4 + 2]) / 3,
+                        (data[((y+1) * width + x) * 4] + data[((y+1) * width + x) * 4 + 1] + data[((y+1) * width + x) * 4 + 2]) / 3,
+                        (data[(y * width + (x-1)) * 4] + data[(y * width + (x-1)) * 4 + 1] + data[(y * width + (x-1)) * 4 + 2]) / 3,
+                        (data[(y * width + (x+1)) * 4] + data[(y * width + (x+1)) * 4 + 1] + data[(y * width + (x+1)) * 4 + 2]) / 3
+                    ];
+                    
+                    if (neighbors.some(n => n <= 128)) {
+                        perimeter++;
+                    }
+                }
+            }
+        }
+        
+        return (4 * Math.PI * area) / (perimeter * perimeter + 0.001);
+    }
+
+    // 대칭성 계산
+    calculateSymmetry(imageData) {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+        
+        let symmetryScore = 0;
+        const halfWidth = Math.floor(width / 2);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < halfWidth; x++) {
+                const leftIdx = (y * width + x) * 4;
+                const rightIdx = (y * width + (width - 1 - x)) * 4;
+                
+                const diff = Math.abs(data[leftIdx] - data[rightIdx]) +
+                           Math.abs(data[leftIdx + 1] - data[rightIdx + 1]) +
+                           Math.abs(data[leftIdx + 2] - data[rightIdx + 2]);
+                
+                if (diff < 30) symmetryScore++;
+            }
+        }
+        
+        return symmetryScore / (halfWidth * height);
+    }
+
+    // 통합 특징 추출
+    async extractAllFeatures(imageElement) {
+        const colorHist = this.extractColorHistogram(imageElement);
+        const hogFeatures = this.extractHOGFeatures(imageElement);
+        const lbpFeatures = this.extractLBPFeatures(imageElement);
+        const shapeFeatures = this.extractShapeFeatures(imageElement);
+        
+        return {
+            color: colorHist,        // 96차원 (32*3)
+            hog: hogFeatures,        // 576차원 (8*8*9)
+            lbp: lbpFeatures,        // 59차원
+            shape: shapeFeatures,    // 10차원
+            metadata: {
+                width: imageElement.width,
+                height: imageElement.height,
+                aspectRatio: imageElement.width / imageElement.height
+            }
+        };
+    }
+
+    // 유사도 계산
+    calculateSimilarity(features1, features2) {
+        // 각 특징별 유사도
+        const colorSim = this.cosineSimilarity(features1.color, features2.color);
+        const hogSim = this.cosineSimilarity(features1.hog, features2.hog);
+        const lbpSim = this.cosineSimilarity(features1.lbp, features2.lbp);
+        const shapeSim = this.cosineSimilarity(features1.shape, features2.shape);
+        
+        // 종횡비 유사도
+        const aspectDiff = Math.abs(features1.metadata.aspectRatio - features2.metadata.aspectRatio);
+        const aspectSim = 1 / (1 + aspectDiff);
+        
+        // 가중 평균
+        const weights = {
+            color: 0.25,    // 25% - 색상
+            hog: 0.35,      // 35% - 형태/구조 (HOG)
+            lbp: 0.20,      // 20% - 텍스처 (LBP)
+            shape: 0.15,    // 15% - 전체 형태
+            aspect: 0.05    // 5% - 종횡비
+        };
+        
+        const similarity = 
+            weights.color * colorSim +
+            weights.hog * hogSim +
+            weights.lbp * lbpSim +
+            weights.shape * shapeSim +
+            weights.aspect * aspectSim;
+        
+        return Math.max(0, Math.min(1, similarity));
+    }
+
+    // 코사인 유사도
+    cosineSimilarity(vec1, vec2) {
+        if (!vec1 || !vec2 || vec1.length !== vec2.length) return 0;
+        
+        let dotProduct = 0;
+        let norm1 = 0;
+        let norm2 = 0;
+        
+        for (let i = 0; i < vec1.length; i++) {
+            dotProduct += vec1[i] * vec2[i];
+            norm1 += vec1[i] * vec1[i];
+            norm2 += vec2[i] * vec2[i];
+        }
+        
+        if (norm1 === 0 || norm2 === 0) return 0;
+        
+        return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+    }
+
+    async searchSimilarImages() {
+        if (!this.uploadedImage) {
+            alert('먼저 이미지를 업로드해주세요.');
+            return;
+        }
+
+        if (this.imageDatabase.length === 0) {
+            alert('인덱싱된 이미지가 없습니다. 먼저 이미지를 인덱싱해주세요.');
+            return;
+        }
+
+        this.showLoading('유사한 가방을 검색하는 중...');
+        console.log('🔍 검색 시작...');
+
+        try {
+            const img = document.getElementById('preview-image');
+            const queryFeatures = await this.extractAllFeatures(img);
+
+            const results = this.imageDatabase.map((item) => {
+                const similarity = this.calculateSimilarity(queryFeatures, item.features);
+                return {
+                    ...item,
+                    similarity: similarity
+                };
+            });
+
+            results.sort((a, b) => b.similarity - a.similarity);
+
+            const filteredResults = results.filter(r => r.similarity < 0.98);
+            
+            this.displayResults(filteredResults.slice(0, 30));
+            
+            console.log(`✅ 검색 완료: ${filteredResults.length}개 결과`);
+            console.log('📊 상위 5개:', filteredResults.slice(0, 5).map(r => 
+                `${r.name}: ${(r.similarity * 100).toFixed(1)}%`
+            ));
+
+        } catch (error) {
+            console.error('❌ 검색 중 오류:', error);
+            alert('검색 중 오류가 발생했습니다.');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    displayResults(results) {
+        const resultsGrid = document.getElementById('results-grid');
+        const resultCount = document.getElementById('result-count');
+        
+        if (resultCount) resultCount.textContent = `(${results.length}개)`;
+        if (!resultsGrid) return;
+        
+        resultsGrid.innerHTML = '';
+
+        results.forEach((result, index) => {
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+            
+            const similarity = Math.round(result.similarity * 100);
+            
+            const img = document.createElement('img');
+            img.className = 'result-image';
+            img.alt = result.name;
+            img.loading = 'lazy';
+            
+            this.loadResultImage(img, result.path, result.name);
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'result-info';
+            
+            const displayName = result.name.length > 30 
+                ? result.name.substring(0, 27) + '...' 
+                : result.name;
+            
+            infoDiv.innerHTML = `
+                <div class="result-filename" title="${result.name}">${displayName}</div>
+                <div class="result-similarity">
+                    유사도: <strong>${similarity}%</strong>
+                </div>
+            `;
+            
+            resultItem.appendChild(img);
+            resultItem.appendChild(infoDiv);
+            
+            resultItem.addEventListener('click', async () => {
+                try {
+                    await invoke('open_file_location', { path: result.path });
+                } catch (error) {
+                    console.error('파일 위치 열기 실패:', error);
+                }
+            });
+
+            resultsGrid.appendChild(resultItem);
+        });
+
+        const resultsSection = document.getElementById('results-section');
+        if (resultsSection) resultsSection.style.display = 'block';
+    }
+
+    async loadResultImage(imgElement, filePath, fileName) {
+        try {
+            let normalizedPath = filePath.replace(/\\/g, '/');
+            const cleanFileName = fileName.trim();
+            
+            if (cleanFileName.includes(' ')) {
+                const dirPath = normalizedPath.substring(0, normalizedPath.lastIndexOf('/'));
+                normalizedPath = `${dirPath}/${cleanFileName}`;
+            }
+            
+            const assetUrl = convertFileSrc(normalizedPath);
+            imgElement.src = assetUrl;
+            
+            imgElement.onerror = async () => {
+                try {
+                    const imageData = await readBinaryFile(filePath);
+                    const ext = fileName.split('.').pop().toLowerCase();
+                    const mimeTypes = {
+                        'jpg': 'image/jpeg',
+                        'jpeg': 'image/jpeg',
+                        'png': 'image/png',
+                        'gif': 'image/gif',
+                        'webp': 'image/webp'
+                    };
+                    
+                    const blob = new Blob([imageData], { type: mimeTypes[ext] || 'image/jpeg' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    imgElement.src = url;
+                    
+                    imgElement.onload = () => {
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    };
+                } catch (error) {
+                    console.error(`이미지 읽기 실패: ${filePath}`, error);
+                    imgElement.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2VlZSIvPjx0ZXh0IHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjEwMCIgeT0iMTAwIiBzdHlsZT0iZmlsbDojYWFhO2ZvbnQtd2VpZ2h0OmJvbGQ7Zm9udC1zaXplOjEzcHg7Zm9udC1mYW1pbHk6QXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWY7ZG9taW5hbnQtYmFzZWxpbmU6Y2VudHJhbCI+로드 실패</text></svg>';
+                }
+            };
+        } catch (error) {
+            console.error(`이미지 처리 오류: ${filePath}`, error);
+        }
+    }
+
+    async selectFolder() {
+        try {
+            const selected = await open({
+                directory: true,
+                multiple: false,
+                title: '이미지 폴더 선택'
+            });
+
+            if (selected) {
+                await this.indexFolder(selected);
+            }
+        } catch (error) {
+            console.error('폴더 선택 오류:', error);
+        }
+    }
+
+    async indexFolder(folderPath) {
+        this.showLoading('가방 이미지를 분석하는 중...');
+
+        try {
+            const entries = await readDir(folderPath, { recursive: true });
+            const imageFiles = entries.filter(entry => {
+                if (!entry.name) return false;
+                const ext = entry.name.toLowerCase().split('.').pop();
+                return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+            });
+
+            const folderPathEl = document.getElementById('folder-path');
+            const imageCountEl = document.getElementById('image-count');
+            const folderInfoEl = document.getElementById('folder-info');
+            
+            if (folderPathEl) folderPathEl.textContent = folderPath;
+            if (imageCountEl) imageCountEl.textContent = imageFiles.length;
+            if (folderInfoEl) folderInfoEl.style.display = 'block';
+
+            if (imageFiles.length === 0) {
+                alert('선택한 폴더에 이미지가 없습니다.');
+                this.hideLoading();
+                return;
+            }
+
+            const progressEl = document.getElementById('indexing-progress');
+            const resultsEl = document.getElementById('index-results');
+            
+            if (progressEl) progressEl.style.display = 'block';
+            if (resultsEl) resultsEl.style.display = 'none';
+
+            const newDatabase = [];
+            const totalImages = imageFiles.length;
+            let processedCount = 0;
+            let errorCount = 0;
+
+            const batchSize = 5;
+            
+            for (let i = 0; i < imageFiles.length; i += batchSize) {
+                const batch = imageFiles.slice(i, i + batchSize);
+                
+                await Promise.all(batch.map(async (file) => {
+                    try {
+                        const imageData = await readBinaryFile(file.path);
+                        const blob = new Blob([imageData]);
+                        const imageUrl = URL.createObjectURL(blob);
+
+                        const img = new Image();
+                        await new Promise((resolve, reject) => {
+                            img.onload = resolve;
+                            img.onerror = reject;
+                            img.src = imageUrl;
+                        });
+
+                        const features = await this.extractAllFeatures(img);
+                        
+                        newDatabase.push({
+                            path: file.path,
+                            name: file.name || 'Unknown',
+                            features: features
+                        });
+
+                        URL.revokeObjectURL(imageUrl);
+                        processedCount++;
+
+                    } catch (error) {
+                        console.error(`이미지 처리 실패: ${file.name}`, error);
+                        errorCount++;
+                    }
+                }));
+
+                const progress = Math.round((Math.min(i + batchSize, totalImages) / totalImages) * 100);
+                const fillEl = document.getElementById('progress-fill');
+                const textEl = document.getElementById('progress-text');
+                
+                if (fillEl) fillEl.style.width = `${progress}%`;
+                if (textEl) textEl.textContent = `${Math.min(i + batchSize, totalImages)} / ${totalImages}`;
+
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            this.imageDatabase = newDatabase;
+            await this.saveDatabase();
+
+            const fillEl = document.getElementById('progress-fill');
+            const textEl = document.getElementById('progress-text');
+            
+            if (fillEl) fillEl.style.width = '100%';
+            if (textEl) textEl.textContent = `${totalImages} / ${totalImages}`;
+            
+            setTimeout(() => {
+                if (progressEl) progressEl.style.display = 'none';
+                if (resultsEl) resultsEl.style.display = 'block';
+                
+                const countEl = document.getElementById('indexed-count');
+                if (countEl) countEl.textContent = processedCount;
+                
+                if (errorCount > 0) {
+                    alert(`✅ 인덱싱 완료!\n성공: ${processedCount}개\n실패: ${errorCount}개`);
+                } else {
+                    console.log(`✅ 인덱싱 완료: ${processedCount}개 성공`);
+                }
+            }, 500);
+
+        } catch (error) {
+            console.error('인덱싱 오류:', error);
+            alert('인덱싱 중 오류가 발생했습니다.');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async saveDatabase() {
+        try {
+            const dbData = {
+                version: 7,
+                timestamp: Date.now(),
+                appVersion: this.version,
+                featureVersion: 'pure_vision',
+                data: this.imageDatabase
+            };
+            
+            await this.storage.setItem('visionDatabase', dbData);
+            console.log(`💾 데이터베이스 저장 완료 (v${dbData.version})`);
+        } catch (error) {
+            console.error('❌ 데이터베이스 저장 실패:', error);
+        }
+    }
+
+    async loadDatabase() {
+        try {
+            const stored = await this.storage.getItem('visionDatabase');
+            
+            if (stored) {
+                if (stored.version === 7 && stored.featureVersion === 'pure_vision') {
+                    this.imageDatabase = stored.data || [];
+                    console.log(`📂 ${this.imageDatabase.length}개의 이미지 로드됨`);
+                } else {
+                    console.log('⚠️ 이전 버전 데이터베이스. 재인덱싱 필요');
+                    this.imageDatabase = [];
+                    await this.storage.clear();
+                }
+            }
+        } catch (error) {
+            console.error('❌ 데이터베이스 로드 실패:', error);
+            this.imageDatabase = [];
+        }
+    }
+
+    showLoading(text = '처리 중...') {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            const loadingText = overlay.querySelector('.loading-text');
+            if (loadingText) loadingText.textContent = text;
+            overlay.style.display = 'flex';
+        }
+    }
+
+    hideLoading() {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+    }
+}
+
+// 앱 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 DOM 로드 완료, 앱 초기화 시작...');
+    
+    const app = new PureVisionBagSearch();
+    
+    window.visionApp = {
+        version: () => {
+            console.log(`버전: v${app.version}`);
+            console.log(`DB 크기: ${app.imageDatabase.length} 개`);
+        },
+        clearDB: async () => {
+            app.imageDatabase = [];
+            await app.storage.clear();
+            console.log('✅ DB 초기화 완료');
+        },
+        testFeatures: async () => {
+            if (app.uploadedImage) {
+                const img = document.getElementById('preview-image');
+                const features = await app.extractAllFeatures(img);
+                console.log('특징 추출 결과:', {
+                    color: features.color.length + '차원',
+                    hog: features.hog.length + '차원',
+                    lbp: features.lbp.length + '차원',
+                    shape: features.shape.length + '차원'
+                });
+            } else {
+                console.log('먼저 이미지를 업로드하세요');
+            }
+        }
+    };
+    
+    console.log('%c👜 Pure Vision Bag Search v7.0 초기화 완료!', 'color: #ff6b6b; font-size: 16px; font-weight: bold;');
+    console.log('%c딥러닝 모델 없는 순수 컴퓨터 비전 시스템', 'color: #666; font-style: italic;');
+    console.log('특징:');
+    console.log('  ✅ HOG (Histogram of Oriented Gradients)');
+    console.log('  ✅ LBP (Local Binary Patterns)');
+    console.log('  ✅ Hu Moments (형태 불변 특징)');
+    console.log('  ✅ 색상 히스토그램');
+    console.log('콘솔 명령어:');
+    console.log('  visionApp.version() - 버전 정보');
+    console.log('  visionApp.clearDB() - DB 초기화');
+    console.log('  visionApp.testFeatures() - 특징 추출 테스트');
+});
