@@ -661,6 +661,38 @@ class FashionSearchDiagnostic {
     version() {
         return `Fashion Search v${this.version} - 진단 버전`;
     }
+    
+    // 팝업으로 진단 결과 보여주기
+    showDiagnostics() {
+        const diagnostics = [];
+        diagnostics.push(`=== Fashion Search v${this.version} 진단 ===\n`);
+        diagnostics.push(`TensorFlow: ${tf.getBackend()}`);
+        diagnostics.push(`모델 로드: ${this.modelLoaded ? '✅' : '❌'}`);
+        diagnostics.push(`이미지 DB: ${this.imageDatabase.length}개\n`);
+        
+        if (this.imageDatabase.length >= 2) {
+            const img1 = this.imageDatabase[0];
+            const img2 = this.imageDatabase[1];
+            const sim = this.calculateCosineSimilarity(img1.features, img2.features);
+            diagnostics.push(`샘플 유사도 테스트:`);
+            diagnostics.push(`${img1.name} vs ${img2.name}`);
+            diagnostics.push(`결과: ${(sim * 100).toFixed(1)}%`);
+            
+            if (sim > 0.99) {
+                diagnostics.push(`\n⚠️ 경고: 유사도가 비정상적으로 높습니다!`);
+                diagnostics.push(`DB를 초기화하고 재인덱싱해주세요.`);
+            } else {
+                diagnostics.push(`\n✅ 유사도가 정상 범위입니다.`);
+            }
+        } else {
+            diagnostics.push(`테스트할 이미지가 부족합니다.`);
+        }
+        
+        const message = diagnostics.join('\n');
+        alert(message);
+        console.log(message);
+        return message;
+    }
 
     async diagnose() {
         console.log('🔍 시스템 진단 시작...');
