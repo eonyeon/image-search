@@ -77,8 +77,7 @@
         "width": 1200,
         "center": true,
         "minWidth": 800,
-        "minHeight": 600,
-        "devtools": true
+        "minHeight": 600
       }
     ]
   }

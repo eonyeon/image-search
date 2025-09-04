@@ -54,6 +54,9 @@ class FashionSearchDiagnostic {
         
         console.log('✅ 초기화 완료!');
         window.fashionApp = this;
+        
+        // 개발자 도구 단축키 설정
+        this.setupDevTools();
     }
 
     async loadModel() {
@@ -81,6 +84,22 @@ class FashionSearchDiagnostic {
     }
 
     // 모델이 제대로 작동하는지 테스트
+    setupDevTools() {
+        // Ctrl+Shift+D로 진단 팝업 열기
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                this.showDiagnostics();
+            }
+        });
+        
+        // 콘솔에 도움말 출력
+        console.log('🔍 진단 도구:');
+        console.log('  • Ctrl+Shift+D: 진단 팝업');
+        console.log('  • fashionApp.diagnose(): 시스템 진단');
+        console.log('  • fashionApp.showDiagnostics(): 팝업 진단');
+        console.log('  • fashionApp.checkFeatures(): 특징 벡터 확인');
+    }
+    
     async testModel() {
         // 두 개의 다른 랜덤 이미지 생성
         const img1 = tf.randomNormal([224, 224, 3]);
