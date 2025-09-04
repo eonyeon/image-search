@@ -8,7 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+# dist  # GitHub Actions에서 빌드하므로 주석 처리
 dist-ssr
 *.local
 

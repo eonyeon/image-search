@@ -10,9 +10,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "icons:generate": "npx tauri icon src-tauri/icons/icon.png",
-    "icons:fix": "mkdir -p src-tauri/icons && npm run icons:generate",
-    "build:safe": "npm run icons:fix && npm run build && npm run tauri:build"
+    "prebuild": "npm run check-dist",
+    "check-dist": "node -e \"const fs=require('fs');if(!fs.existsSync('dist')){fs.mkdirSync('dist');fs.writeFileSync('dist/.gitkeep','')}\"",
+    "postinstall": "node -e \"console.log('Dependencies installed successfully')\""
   },
   "dependencies": {
     "@tauri-apps/api": "^1.5.0",
