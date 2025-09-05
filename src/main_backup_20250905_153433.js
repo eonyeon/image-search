@@ -3,21 +3,24 @@ import { open } from '@tauri-apps/api/dialog';
 import { readDir, readBinaryFile } from '@tauri-apps/api/fs';
 import localforage from 'localforage';
 import * as tf from '@tensorflow/tfjs';
+import * as mobilenet from '@tensorflow-models/mobilenet';
 
-// Fashion Search v16.0 - 색상 히스토그램 기반 (MobileNet 대체)
-class FashionSearchColorBased {
+// Fashion Search v15.0 - Embeddings Layer 문제 해결
+class FashionSearchEmbeddingsFix {
     constructor() {
         this.currentMode = 'search';
         this.uploadedImage = null;
         this.imageDatabase = [];
-        this.version = '16.0.0';
+        this.version = '15.0.0';
+        this.model = null;
+        this.modelLoaded = false;
         this.debugMode = true;
         this.debugLogs = [];
         
         // 새 DB
         this.storage = localforage.createInstance({
             name: 'FashionSearchDB',
-            storeName: 'fashionVectorsV16ColorBased'
+            storeName: 'fashionVectorsV15EmbeddingsFix'
         });
         
         this.init();
@@ -50,15 +53,19 @@ class FashionSearchColorBased {
     }
     
     async init() {
-        this.addDebugLog('🚀 Fashion Search v16.0 - 색상 기반 검색', 'critical');
-        this.addDebugLog('MobileNet 대신 색상 히스토그램 사용', 'warning');
+        this.addDebugLog('🚀 Fashion Search v15.0 - Embeddings Fix', 'critical');
         
         // 디버그 패널 생성
         this.createDebugPanel();
         
-        // TensorFlow는 이미지 처리용으로만 사용
+        // TensorFlow 초기화 - CPU 모드로 시작
+        this.addDebugLog('CPU 백엔드로 시작 (안정성 우선)', 'warning');
+        await tf.setBackend('cpu');
         await tf.ready();
-        this.addDebugLog(`✅ TensorFlow 준비 완료`, 'success');
+        this.addDebugLog(`✅ TensorFlow 백엔드: ${tf.getBackend()}`, 'success');
+        
+        // 모델 로드
+        await this.loadModel();
         
         // DB 로드
         await this.loadDatabase();
@@ -93,7 +100,7 @@ class FashionSearchColorBased {
         
         debugPanel.innerHTML = `
             <div style="color: #ff0; font-weight: bold; margin-bottom: 5px;">
-                🎨 Debug Console v16.0 - COLOR BASED
+                🔍 Debug Console v15.0 - EMBEDDINGS FIX
             </div>
             <div id="debug-log-container" style="overflow-y: auto; max-height: 300px;"></div>
         `;
@@ -105,7 +112,7 @@ class FashionSearchColorBased {
             position: fixed;
             top: 10px;
             right: 10px;
-            background: linear-gradient(45deg, #FF6B6B, #4ECDC4);
+            background: rgba(255, 0, 0, 0.95);
             color: white;
             padding: 15px;
             border-radius: 5px;
@@ -115,12 +122,15 @@ class FashionSearchColorBased {
         `;
         
         controlPanel.innerHTML = `
-            <h3 style="margin-top: 0;">🎨 v16.0 색상 기반</h3>
-            <button onclick="fashionApp.testColorExtraction()" style="margin: 3px; padding: 5px 10px;">
-                🎨 색상 추출 테스트
+            <h3 style="margin-top: 0;">🔧 v15.0 Embeddings 컨트롤</h3>
+            <button onclick="fashionApp.deepTestModel()" style="margin: 3px; padding: 5px 10px;">
+                🔬 심층 모델 테스트
             </button>
-            <button onclick="fashionApp.validateDatabase()" style="margin: 3px; padding: 5px 10px;">
-                📊 DB 검증
+            <button onclick="fashionApp.testDirectInference()" style="margin: 3px; padding: 5px 10px;">
+                🎯 직접 추론 테스트
+            </button>
+            <button onclick="fashionApp.switchBackend()" style="margin: 3px; padding: 5px 10px;">
+                🔄 백엔드 전환
             </button>
             <button onclick="fashionApp.clearAndReload()" style="margin: 3px; padding: 5px 10px; background: red;">
                 💣 완전 초기화
@@ -130,163 +140,226 @@ class FashionSearchColorBased {
         document.body.appendChild(controlPanel);
     }
     
-    // 색상 히스토그램 추출 (핵심!)
-    extractColorFeatures(imageData) {
-        // RGB 색상 공간을 8x8x8 = 512개 빈으로 나눔
-        const bins = 8;
-        const histogram = new Array(bins * bins * bins).fill(0);
-        const pixelCount = imageData.width * imageData.height;
-        
-        // HSV 추가 특징
-        const hueHistogram = new Array(36).fill(0); // 360도를 36개 구간으로
-        const saturationSum = { low: 0, mid: 0, high: 0 };
-        const brightnessSum = { dark: 0, mid: 0, bright: 0 };
-        
-        const data = imageData.data;
-        
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
+    async loadModel() {
+        try {
+            this.showLoading('MobileNet v2 모델 로드 중...');
+            this.addDebugLog('모델 로드 시작...', 'warning');
             
-            // RGB 히스토그램
-            const rBin = Math.floor(r / (256 / bins));
-            const gBin = Math.floor(g / (256 / bins));
-            const bBin = Math.floor(b / (256 / bins));
-            const binIndex = rBin * bins * bins + gBin * bins + bBin;
-            histogram[binIndex]++;
-            
-            // RGB to HSV
-            const hsv = this.rgbToHsv(r, g, b);
-            
-            // Hue 히스토그램 (색상)
-            const hueBin = Math.floor(hsv.h / 10);
-            hueHistogram[hueBin]++;
-            
-            // Saturation 분류 (채도)
-            if (hsv.s < 0.33) saturationSum.low++;
-            else if (hsv.s < 0.66) saturationSum.mid++;
-            else saturationSum.high++;
-            
-            // Brightness 분류 (명도)
-            if (hsv.v < 0.33) brightnessSum.dark++;
-            else if (hsv.v < 0.66) brightnessSum.mid++;
-            else brightnessSum.bright++;
-        }
-        
-        // 정규화
-        const normalizedHistogram = histogram.map(val => val / pixelCount);
-        const normalizedHue = hueHistogram.map(val => val / pixelCount);
-        
-        // 특징 벡터 생성 (총 512 + 36 + 3 + 3 = 554차원)
-        const features = [
-            ...normalizedHistogram,
-            ...normalizedHue,
-            saturationSum.low / pixelCount,
-            saturationSum.mid / pixelCount,
-            saturationSum.high / pixelCount,
-            brightnessSum.dark / pixelCount,
-            brightnessSum.mid / pixelCount,
-            brightnessSum.bright / pixelCount
-        ];
-        
-        // 추가: 주요 색상 추출 (상위 5개)
-        const colorCounts = {};
-        for (let i = 0; i < data.length; i += 4) {
-            const r = Math.floor(data[i] / 32) * 32;
-            const g = Math.floor(data[i + 1] / 32) * 32;
-            const b = Math.floor(data[i + 2] / 32) * 32;
-            const key = `${r},${g},${b}`;
-            colorCounts[key] = (colorCounts[key] || 0) + 1;
-        }
-        
-        const topColors = Object.entries(colorCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([color, count]) => {
-                const [r, g, b] = color.split(',').map(Number);
-                return [r/255, g/255, b/255, count/pixelCount];
-            })
-            .flat();
-        
-        // 상위 5개 색상 정보 추가 (5 * 4 = 20차원)
-        while (topColors.length < 20) {
-            topColors.push(0);
-        }
-        
-        features.push(...topColors);
-        
-        return features; // 총 574차원
-    }
-    
-    rgbToHsv(r, g, b) {
-        r /= 255;
-        g /= 255;
-        b /= 255;
-        
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const diff = max - min;
-        
-        let h = 0;
-        let s = max === 0 ? 0 : diff / max;
-        let v = max;
-        
-        if (diff !== 0) {
-            if (max === r) {
-                h = ((g - b) / diff + (g < b ? 6 : 0)) * 60;
-            } else if (max === g) {
-                h = ((b - r) / diff + 2) * 60;
-            } else {
-                h = ((r - g) / diff + 4) * 60;
+            // 기존 모델 정리
+            if (this.model) {
+                this.model = null;
+                await tf.disposeVariables();
             }
+            
+            // MobileNet v2 로드 - 다른 설정 시도
+            this.model = await mobilenet.load({
+                version: 2,
+                alpha: 0.75  // 1.0 대신 0.75 사용
+            });
+            
+            this.modelLoaded = true;
+            this.addDebugLog('✅ MobileNet v2 (alpha=0.75) 로드', 'success');
+            
+            // 모델 구조 확인
+            await this.inspectModel();
+            
+            this.hideLoading();
+        } catch (error) {
+            this.addDebugLog(`❌ 모델 로드 실패: ${error.message}`, 'error');
+            this.hideLoading();
         }
-        
-        return { h, s, v };
     }
     
-    async testColorExtraction() {
-        this.addDebugLog('=== 색상 추출 테스트 ===', 'critical');
+    async inspectModel() {
+        this.addDebugLog('=== 모델 구조 검사 ===', 'critical');
         
-        // 테스트 이미지 생성
+        // 테스트 이미지
+        const testImage = tf.randomUniform([1, 224, 224, 3]);
+        
+        // embeddings=false로 시도 (분류 출력)
+        const classOutput = await this.model.infer(testImage, false);
+        this.addDebugLog(`분류 출력 shape: ${classOutput.shape}`, 'info');
+        
+        // embeddings=true로 시도 (특징 벡터)
+        const embeddings = await this.model.infer(testImage, true);
+        this.addDebugLog(`임베딩 출력 shape: ${embeddings.shape}`, 'info');
+        
+        // 실제 값 확인
+        const embData = await embeddings.data();
+        const embArray = Array.from(embData);
+        
+        // 통계 계산
+        const nonZeros = embArray.filter(v => Math.abs(v) > 0.001).length;
+        const uniqueValues = new Set(embArray.map(v => v.toFixed(3))).size;
+        const avgValue = embArray.reduce((a,b) => a+b, 0) / embArray.length;
+        const maxValue = Math.max(...embArray);
+        const minValue = Math.min(...embArray);
+        
+        this.addDebugLog(`벡터 통계:`, 'critical');
+        this.addDebugLog(`  길이: ${embArray.length}`, 'info');
+        this.addDebugLog(`  0이 아닌 값: ${nonZeros}/${embArray.length}`, nonZeros < 100 ? 'error' : 'success');
+        this.addDebugLog(`  고유 값 수: ${uniqueValues}`, uniqueValues < 100 ? 'error' : 'success');
+        this.addDebugLog(`  평균: ${avgValue.toFixed(4)}`, 'info');
+        this.addDebugLog(`  최소: ${minValue.toFixed(4)}`, 'info');
+        this.addDebugLog(`  최대: ${maxValue.toFixed(4)}`, 'info');
+        
+        // 처음 10개 값
+        this.addDebugLog(`처음 10개: [${embArray.slice(0, 10).map(v => v.toFixed(3)).join(', ')}]`, 'info');
+        
+        // 정리
+        testImage.dispose();
+        classOutput.dispose();
+        embeddings.dispose();
+    }
+    
+    async deepTestModel() {
+        this.addDebugLog('=== 심층 모델 테스트 ===', 'critical');
+        
+        // 실제 이미지로 테스트
         const canvas = document.createElement('canvas');
-        canvas.width = 100;
-        canvas.height = 100;
+        canvas.width = 224;
+        canvas.height = 224;
         const ctx = canvas.getContext('2d');
         
-        const testCases = [
-            { name: '빨강', color: 'red' },
-            { name: '파랑', color: 'blue' },
-            { name: '초록', color: 'green' },
-            { name: '검정', color: 'black' },
-            { name: '흰색', color: 'white' }
-        ];
+        // 테스트 1: 순수 색상
+        const colors = ['red', 'green', 'blue', 'yellow'];
+        const colorVectors = [];
         
-        const vectors = [];
-        
-        for (const test of testCases) {
-            ctx.fillStyle = test.color;
-            ctx.fillRect(0, 0, 100, 100);
+        for (const color of colors) {
+            ctx.fillStyle = color;
+            ctx.fillRect(0, 0, 224, 224);
             
-            const imageData = ctx.getImageData(0, 0, 100, 100);
-            const features = this.extractColorFeatures(imageData);
+            const tensor = tf.browser.fromPixels(canvas);
+            const normalized = tensor.div(255.0);
+            const batched = normalized.expandDims(0);
             
-            vectors.push({ name: test.name, features });
+            // 임베딩 추출
+            const embeddings = await this.model.infer(batched, true);
+            const data = await embeddings.data();
+            const vector = Array.from(data);
             
-            // 주요 특징 출력
-            const rgbStart = features.slice(0, 10);
-            this.addDebugLog(`${test.name}: [${rgbStart.map(v => v.toFixed(3)).join(', ')}...]`, 'info');
+            colorVectors.push({color, vector});
+            
+            this.addDebugLog(`${color}: [${vector.slice(0, 5).map(v => v.toFixed(3)).join(', ')}...]`, 'info');
+            
+            // 정리
+            tensor.dispose();
+            normalized.dispose();
+            batched.dispose();
+            embeddings.dispose();
         }
         
-        // 유사도 테스트
+        // 유사도 계산
         this.addDebugLog('색상 간 유사도:', 'critical');
-        for (let i = 0; i < vectors.length; i++) {
-            for (let j = i + 1; j < vectors.length; j++) {
-                const sim = this.cosineSimilarity(vectors[i].features, vectors[j].features);
+        for (let i = 0; i < colorVectors.length; i++) {
+            for (let j = i + 1; j < colorVectors.length; j++) {
+                const sim = this.cosineSimilarity(colorVectors[i].vector, colorVectors[j].vector);
                 const color = sim > 0.9 ? 'error' : sim > 0.7 ? 'warning' : 'success';
-                this.addDebugLog(`  ${vectors[i].name} vs ${vectors[j].name}: ${(sim * 100).toFixed(1)}%`, color);
+                this.addDebugLog(`  ${colorVectors[i].color} vs ${colorVectors[j].color}: ${(sim * 100).toFixed(1)}%`, color);
             }
         }
+    }
+    
+    async testDirectInference() {
+        this.addDebugLog('=== 직접 추론 테스트 ===', 'critical');
+        
+        // 다른 방법으로 특징 추출 시도
+        const testImg = tf.randomUniform([1, 224, 224, 3]);
+        
+        // 방법 1: classify 사용
+        try {
+            const predictions = await this.model.classify(testImg);
+            this.addDebugLog(`classify 결과: ${predictions.length}개 클래스`, 'info');
+        } catch (error) {
+            this.addDebugLog(`classify 실패: ${error.message}`, 'error');
+        }
+        
+        // 방법 2: 레이어별 출력 시도
+        try {
+            // embeddings=true는 보통 마지막-1 레이어
+            const embeddings = await this.model.infer(testImg, true);
+            const shape = embeddings.shape;
+            this.addDebugLog(`임베딩 shape: [${shape}]`, 'info');
+            
+            // 실제 값 확인
+            const data = await embeddings.data();
+            const arr = Array.from(data);
+            
+            // 값 분포 분석
+            const histogram = {};
+            arr.forEach(v => {
+                const bucket = Math.floor(v * 10) / 10;
+                histogram[bucket] = (histogram[bucket] || 0) + 1;
+            });
+            
+            const sortedBuckets = Object.entries(histogram)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5);
+            
+            this.addDebugLog('값 분포 (상위 5개):', 'info');
+            sortedBuckets.forEach(([bucket, count]) => {
+                this.addDebugLog(`  ${bucket}: ${count}개`, 'info');
+            });
+            
+            embeddings.dispose();
+        } catch (error) {
+            this.addDebugLog(`임베딩 추출 실패: ${error.message}`, 'error');
+        }
+        
+        testImg.dispose();
+    }
+    
+    async switchBackend() {
+        const current = tf.getBackend();
+        const newBackend = current === 'webgl' ? 'cpu' : 'webgl';
+        
+        this.addDebugLog(`백엔드 전환: ${current} → ${newBackend}`, 'warning');
+        
+        await tf.setBackend(newBackend);
+        await tf.ready();
+        
+        this.addDebugLog(`✅ 새 백엔드: ${tf.getBackend()}`, 'success');
+        
+        // 모델 재로드
+        await this.loadModel();
+    }
+    
+    // 새로운 특징 추출 메서드 - 핵심!
+    async extractFeatures(imgElement) {
+        return tf.tidy(() => {
+            // 이미지를 텐서로 변환
+            const tensor = tf.browser.fromPixels(imgElement);
+            
+            // 크기 조정
+            const resized = tf.image.resizeBilinear(tensor, [224, 224]);
+            
+            // 정규화 - MobileNet v2는 -1 ~ 1 범위 사용
+            const normalized = resized.sub(127.5).div(127.5);
+            
+            // 배치 차원 추가
+            const batched = normalized.expandDims(0);
+            
+            return batched;
+        });
+    }
+    
+    async getEmbeddings(tensor) {
+        // 임베딩 추출
+        const embeddings = await this.model.infer(tensor, true);
+        
+        // 데이터 가져오기
+        const data = await embeddings.data();
+        
+        // 배열로 변환 전에 복사본 생성
+        const buffer = new ArrayBuffer(data.byteLength);
+        const view = new Float32Array(buffer);
+        view.set(data);
+        
+        // 정리
+        embeddings.dispose();
+        
+        // 새 배열 반환
+        return Array.from(view);
     }
     
     cosineSimilarity(vec1, vec2) {
@@ -305,46 +378,6 @@ class FashionSearchColorBased {
         if (norm1 === 0 || norm2 === 0) return 0;
         
         return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-    }
-    
-    async validateDatabase() {
-        if (this.imageDatabase.length < 2) {
-            this.addDebugLog('DB가 비어있습니다. 먼저 이미지를 인덱싱하세요.', 'warning');
-            return;
-        }
-        
-        this.addDebugLog('=== DB 검증 ===', 'critical');
-        
-        const sampleSize = Math.min(5, this.imageDatabase.length);
-        const similarities = [];
-        
-        for (let i = 0; i < sampleSize; i++) {
-            for (let j = i + 1; j < sampleSize; j++) {
-                const sim = this.cosineSimilarity(
-                    this.imageDatabase[i].features,
-                    this.imageDatabase[j].features
-                );
-                similarities.push(sim);
-                
-                this.addDebugLog(
-                    `${i+1} vs ${j+1}: ${(sim * 100).toFixed(1)}%`,
-                    sim > 0.95 ? 'error' : 'info'
-                );
-            }
-        }
-        
-        const avgSim = similarities.reduce((a, b) => a + b, 0) / similarities.length;
-        const maxSim = Math.max(...similarities);
-        const minSim = Math.min(...similarities);
-        const range = maxSim - minSim;
-        
-        this.addDebugLog(`평균: ${(avgSim * 100).toFixed(1)}%, 범위: ${(range * 100).toFixed(1)}%`, 'critical');
-        
-        if (range < 0.2) {
-            this.addDebugLog('⚠️ 다양성 부족! 색상 차이가 적습니다.', 'error');
-        } else {
-            this.addDebugLog('✅ 색상 다양성 정상', 'success');
-        }
     }
     
     setupEventListeners() {
@@ -445,20 +478,10 @@ class FashionSearchColorBased {
         
         const img = new Image();
         img.onload = async () => {
-            // Canvas에서 이미지 데이터 추출
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const imageData = ctx.getImageData(0, 0, img.width, img.height);
-            
-            // 색상 특징 추출
-            const features = this.extractColorFeatures(imageData);
-            
+            const tensor = await this.extractFeatures(img);
             this.uploadedImage = {
                 fileName: fileName,
-                features: features,
+                tensor: tensor,
                 element: img
             };
             
@@ -468,15 +491,15 @@ class FashionSearchColorBased {
                 searchBtn.style.opacity = '1';
             }
             
-            this.addDebugLog(`✅ 이미지 준비 완료 (${features.length}차원)`, 'success');
+            this.addDebugLog(`✅ 이미지 준비 완료`, 'success');
         };
         
         img.src = dataUrl;
     }
     
     async searchSimilarImages() {
-        if (!this.uploadedImage) {
-            alert('이미지를 업로드해주세요.');
+        if (!this.uploadedImage || !this.modelLoaded) {
+            alert('이미지를 업로드하고 모델이 로드될 때까지 기다려주세요.');
             return;
         }
         
@@ -484,10 +507,11 @@ class FashionSearchColorBased {
         this.showLoading('유사 이미지 검색 중...');
         
         try {
-            const queryVector = this.uploadedImage.features;
+            // 쿼리 이미지 특징 추출
+            const queryVector = await this.getEmbeddings(this.uploadedImage.tensor);
             
             this.addDebugLog(`쿼리 벡터: ${queryVector.length}차원`, 'info');
-            this.addDebugLog(`색상 특징: [${queryVector.slice(0, 5).map(v => v.toFixed(3)).join(', ')}...]`, 'info');
+            this.addDebugLog(`쿼리 샘플: [${queryVector.slice(0, 5).map(v => v.toFixed(3)).join(', ')}]`, 'info');
             
             // 유사도 계산
             const results = [];
@@ -512,13 +536,11 @@ class FashionSearchColorBased {
                 this.addDebugLog('유사도 통계:', 'critical');
                 this.addDebugLog(`  최대: ${(maxSim * 100).toFixed(1)}%`, 'info');
                 this.addDebugLog(`  최소: ${(minSim * 100).toFixed(1)}%`, 'info');
-                this.addDebugLog(`  범위: ${(range * 100).toFixed(1)}%`, range < 0.2 ? 'error' : 'success');
+                this.addDebugLog(`  범위: ${(range * 100).toFixed(1)}%`, range < 0.1 ? 'error' : 'success');
                 
-                // 상위 5개 결과
-                this.addDebugLog('상위 5개 결과:', 'info');
-                results.slice(0, 5).forEach((r, i) => {
-                    this.addDebugLog(`  ${i+1}. ${r.name}: ${(r.similarity * 100).toFixed(1)}%`, 'info');
-                });
+                if (range < 0.05) {
+                    this.addDebugLog('⚠️ 유사도 범위 문제! 모델 재초기화 필요!', 'error');
+                }
             }
             
             await this.displayResults(results);
@@ -549,7 +571,7 @@ class FashionSearchColorBased {
     
     async indexFolder(folderPath) {
         this.showLoading('이미지 인덱싱 중...');
-        this.addDebugLog(`=== 색상 기반 인덱싱 시작 ===`, 'critical');
+        this.addDebugLog(`=== 인덱싱 시작 ===`, 'critical');
         
         try {
             const entries = await readDir(folderPath, { recursive: true });
@@ -596,24 +618,19 @@ class FashionSearchColorBased {
                         img.src = dataUrl;
                     });
                     
-                    // Canvas에서 색상 추출
-                    const canvas = document.createElement('canvas');
-                    const maxSize = 200; // 성능을 위해 크기 제한
-                    const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    const imageDataCanvas = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    
-                    // 색상 특징 추출
-                    const featureVector = this.extractColorFeatures(imageDataCanvas);
+                    // 특징 추출
+                    const tensor = await this.extractFeatures(img);
+                    const featureVector = await this.getEmbeddings(tensor);
                     
                     // 처음 3개 상세 로그
                     if (processed < 3) {
                         this.addDebugLog(`이미지 ${processed + 1}: ${imageInfo.name}`, 'info');
-                        this.addDebugLog(`  특징: [${featureVector.slice(0, 5).map(v => v.toFixed(3)).join(', ')}...]`, 'info');
+                        this.addDebugLog(`  처음 5개: [${featureVector.slice(0, 5).map(v => v.toFixed(3)).join(', ')}]`, 'info');
+                        
+                        // 값 분석
+                        const nonZeros = featureVector.filter(v => Math.abs(v) > 0.001).length;
+                        this.addDebugLog(`  0이 아닌 값: ${nonZeros}/${featureVector.length}`, 
+                            nonZeros < 100 ? 'error' : 'info');
                         
                         if (testVectors.length > 0) {
                             const sim = this.cosineSimilarity(featureVector, testVectors[testVectors.length - 1]);
@@ -632,6 +649,7 @@ class FashionSearchColorBased {
                     });
                     
                     // 메모리 정리
+                    tensor.dispose();
                     URL.revokeObjectURL(dataUrl);
                     
                     processed++;
@@ -640,7 +658,11 @@ class FashionSearchColorBased {
                     if (processed % 10 === 0) {
                         const progress = Math.round((processed / images.length) * 100);
                         this.updateLoadingMessage(`인덱싱 중... ${processed}/${images.length} (${progress}%)`);
-                        await new Promise(resolve => setTimeout(resolve, 0)); // 프레임 양보
+                        
+                        const memory = tf.memory();
+                        this.addDebugLog(`메모리: ${memory.numTensors} tensors`, 'info');
+                        
+                        await tf.nextFrame();
                     }
                     
                 } catch (error) {
@@ -654,13 +676,18 @@ class FashionSearchColorBased {
                 const finalSim = this.cosineSimilarity(testVectors[0], testVectors[1]);
                 this.addDebugLog(`최종 검증 유사도: ${(finalSim * 100).toFixed(1)}%`, 
                     finalSim > 0.95 ? 'error' : 'success');
+                
+                if (finalSim > 0.95) {
+                    this.addDebugLog('⚠️ 벡터가 너무 비슷합니다!', 'error');
+                    this.addDebugLog('백엔드를 전환하거나 모델을 재로드해보세요.', 'warning');
+                }
             }
             
             // DB 저장
             await this.saveDatabase();
             
-            this.addDebugLog(`✅ 색상 인덱싱 완료: ${this.imageDatabase.length}개`, 'success');
-            alert(`인덱싱 완료!\n${this.imageDatabase.length}개의 이미지가 색상 기반으로 인덱싱되었습니다.`);
+            this.addDebugLog(`✅ 인덱싱 완료: ${this.imageDatabase.length}개`, 'success');
+            alert(`인덱싱 완료!\n${this.imageDatabase.length}개의 이미지가 인덱싱되었습니다.`);
             
         } catch (error) {
             this.addDebugLog(`❌ 인덱싱 실패: ${error.message}`, 'error');
@@ -683,21 +710,19 @@ class FashionSearchColorBased {
             const resultItem = document.createElement('div');
             resultItem.className = 'result-item';
             resultItem.style.cssText = `
-                border: 3px solid #ddd;
+                border: 2px solid #ddd;
                 border-radius: 8px;
                 overflow: hidden;
                 margin: 10px;
                 display: inline-block;
                 width: 200px;
                 vertical-align: top;
-                transition: all 0.3s;
             `;
             
-            // 유사도에 따른 그라데이션 테두리
-            const hue = 120 * result.similarity; // 0=빨강, 120=초록
-            resultItem.style.borderImage = `linear-gradient(45deg, 
-                hsl(${hue}, 100%, 50%), 
-                hsl(${hue + 30}, 100%, 50%)) 1`;
+            if (result.similarity > 0.8) {
+                resultItem.style.borderColor = '#4CAF50';
+                resultItem.style.borderWidth = '3px';
+            }
             
             try {
                 const imageData = await readBinaryFile(result.path);
@@ -707,14 +732,11 @@ class FashionSearchColorBased {
                 resultItem.innerHTML = `
                     <img src="${imageUrl}" alt="${result.name}" 
                          style="width: 100%; height: 200px; object-fit: cover;">
-                    <div style="padding: 10px; background: linear-gradient(to bottom, white, #f0f0f0);">
+                    <div style="padding: 10px;">
                         <div style="font-size: 12px; overflow: hidden; text-overflow: ellipsis;">
                             ${result.name}
                         </div>
-                        <div style="font-size: 24px; font-weight: bold; 
-                                    background: linear-gradient(45deg, #667eea, #764ba2);
-                                    -webkit-background-clip: text;
-                                    -webkit-text-fill-color: transparent;">
+                        <div style="font-size: 20px; font-weight: bold; color: #2196F3;">
                             ${(result.similarity * 100).toFixed(1)}%
                         </div>
                     </div>
@@ -723,7 +745,7 @@ class FashionSearchColorBased {
                 resultItem.innerHTML = `
                     <div style="padding: 20px; text-align: center;">
                         <div>${result.name}</div>
-                        <div style="font-size: 24px; font-weight: bold;">
+                        <div style="font-size: 20px; font-weight: bold; color: #2196F3;">
                             ${(result.similarity * 100).toFixed(1)}%
                         </div>
                     </div>
@@ -779,6 +801,9 @@ class FashionSearchColorBased {
             
             await this.storage.clear();
             this.imageDatabase = [];
+            
+            this.model = null;
+            await tf.disposeVariables();
             
             setTimeout(() => {
                 location.reload();
@@ -836,31 +861,17 @@ class FashionSearchColorBased {
 
 // DOM 로드 완료 후 실행
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🎨 Fashion Search v16.0 - Color Based');
+    console.log('🚀 Fashion Search v15.0 - Embeddings Fix');
     
     const style = document.createElement('style');
     style.textContent = `
         .mode-content { display: none; }
         .mode-content.active { display: block; }
-        .mode-btn.active { 
-            background: linear-gradient(45deg, #667eea, #764ba2); 
-            color: white; 
-        }
-        #upload-area { 
-            transition: all 0.3s; 
-            cursor: pointer;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        }
-        #upload-area:hover { 
-            border-color: #667eea; 
-            transform: scale(1.02);
-        }
-        .result-item:hover {
-            transform: scale(1.05);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
+        .mode-btn.active { background-color: #2196F3; color: white; }
+        #upload-area { transition: all 0.3s; cursor: pointer; }
+        #upload-area:hover { border-color: #2196F3; background-color: #f5f5f5; }
     `;
     document.head.appendChild(style);
     
-    new FashionSearchColorBased();
+    new FashionSearchEmbeddingsFix();
 });
