@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>이미지 검색 시스템</title>
-    <link rel="stylesheet" href="/src/style.css">
+  <script type="module" crossorigin src="/assets/index-DNIgLX9H.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BjnrZ7wg.css">
 </head>
 <body>
     <div class="container">
@@ -68,7 +69,7 @@
                         <span class="btn-icon">🗑️</span>
                         데이터베이스 초기화
                     </button>
-                    <button id="console-btn" class="secondary-btn" style="margin-left: 10px; background-color: #4CAF50; color: white; border-color: #4CAF50;" onclick="window.location.href='console.html'">
+                    <button id="console-btn" class="secondary-btn" style="margin-left: 10px; background-color: #4CAF50; color: white; border-color: #4CAF50;" onclick="if(window.fashionApp) window.fashionApp.showDiagnostics(); else alert('앱이 로드되지 않았습니다. 잠시 후 다시 시도해주세요.');">
                         <span class="btn-icon">🔍</span>
                         진단 콘솔
                     </button>
@@ -104,6 +105,5 @@
         <p class="loading-text">처리 중...</p>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
 </body>
 </html>

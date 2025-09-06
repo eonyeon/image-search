@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>v17.0 테스트</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .test-panel {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        button {
+            background: white;
+            color: #333;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #f0f0f0;
+        }
+        .output {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 2px solid #0f0;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-panel">
+        <h1>🔍 Fashion Search v17.0 테스트</h1>
+        
+        <div class="status">
+            <div>앱 상태: <span id="app-status">확인 중...</span></div>
+            <div>버전: <span id="version">-</span></div>
+            <div>DB 크기: <span id="db-size">-</span></div>
+            <div>특징 차원: <span id="feature-dim">-</span></div>
+        </div>
+
+        <div style="margin: 20px 0;">
+            <h3>테스트 버튼</h3>
+            <button onclick="checkApp()">🔍 앱 상태 확인</button>
+            <button onclick="testFeatures()">🧪 특징 추출 테스트</button>
+            <button onclick="validateDB()">📊 DB 검증</button>
+            <button onclick="clearDB()">💣 완전 초기화</button>
+            <button onclick="testImageUpload()">📷 이미지 테스트</button>
+        </div>
+
+        <div class="output" id="output">
+            대기 중...
+        </div>
+    </div>
+
+    <script type="module">
+        // main.js 로드
+        import('/src/main.js');
+        
+        // 전역 함수
+        window.output = function(msg, color = '#0f0') {
+            const outputDiv = document.getElementById('output');
+            const line = document.createElement('div');
+            line.style.color = color;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            outputDiv.appendChild(line);
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        };
+
+        window.checkApp = function() {
+            output('=== 앱 상태 확인 ===', '#ff0');
+            
+            if (window.fashionApp) {
+                output('✅ 앱 로드됨', '#0ff');
+                output(`버전: ${window.fashionApp.version}`, '#0ff');
+                output(`DB 크기: ${window.fashionApp.imageDatabase.length}개`, '#0ff');
+                output(`디버그 모드: ${window.fashionApp.debugMode}`, '#0ff');
+                
+                document.getElementById('app-status').textContent = '✅ 정상';
+                document.getElementById('app-status').style.color = '#0f0';
+                document.getElementById('version').textContent = window.fashionApp.version;
+                document.getElementById('db-size').textContent = window.fashionApp.imageDatabase.length;
+            } else {
+                output('❌ 앱이 로드되지 않았습니다', '#f00');
+                document.getElementById('app-status').textContent = '❌ 오류';
+                document.getElementById('app-status').style.color = '#f00';
+            }
+        };
+
+        window.testFeatures = async function() {
+            output('=== 특징 추출 테스트 시작 ===', '#ff0');
+            
+            if (!window.fashionApp) {
+                output('❌ 앱이 로드되지 않았습니다', '#f00');
+                return;
+            }
+            
+            // 테스트 이미지 생성
+            const canvas = document.createElement('canvas');
+            canvas.width = 100;
+            canvas.height = 100;
+            const ctx = canvas.getContext('2d');
+            
+            // 검정색 테스트
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, 100, 100);
+            const blackData = ctx.getImageData(0, 0, 100, 100);
+            const blackFeatures = await window.fashionApp.extractHybridFeatures(blackData, canvas);
+            
+            // 샤넬 스타일 퀼팅 패턴
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, 100, 100);
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 100; i += 20) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, 100);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i);
+                ctx.lineTo(100, i);
+                ctx.stroke();
+            }
+            const chanelData = ctx.getImageData(0, 0, 100, 100);
+            const chanelFeatures = await window.fashionApp.extractHybridFeatures(chanelData, canvas);
+            
+            // 루이비통 브라운
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, 0, 100, 100);
+            const brownData = ctx.getImageData(0, 0, 100, 100);
+            const brownFeatures = await window.fashionApp.extractHybridFeatures(brownData, canvas);
+            
+            output(`검정색 특징: ${blackFeatures.length}차원`, '#0ff');
+            output(`샤넬 패턴 특징: ${chanelFeatures.length}차원`, '#0ff');
+            output(`브라운 특징: ${brownFeatures.length}차원`, '#0ff');
+            
+            document.getElementById('feature-dim').textContent = `${blackFeatures.length}차원`;
+            
+            // 유사도 계산
+            const blackVsChanel = window.fashionApp.calculateWeightedSimilarity(blackFeatures, chanelFeatures);
+            const blackVsBrown = window.fashionApp.calculateWeightedSimilarity(blackFeatures, brownFeatures);
+            const chanelVsBrown = window.fashionApp.calculateWeightedSimilarity(chanelFeatures, brownFeatures);
+            
+            output('--- 유사도 결과 ---', '#ff0');
+            output(`검정 vs 샤넬패턴: ${(blackVsChanel * 100).toFixed(1)}%`, blackVsChanel > 0.8 ? '#f00' : '#0f0');
+            output(`검정 vs 브라운: ${(blackVsBrown * 100).toFixed(1)}%`, blackVsBrown > 0.6 ? '#ff0' : '#0f0');
+            output(`샤넬패턴 vs 브라운: ${(chanelVsBrown * 100).toFixed(1)}%`, chanelVsBrown > 0.6 ? '#ff0' : '#0f0');
+            
+            if (blackFeatures.length !== 544) {
+                output('⚠️ 경고: 특징 차원이 544가 아닙니다!', '#f00');
+                output('v17.0이 제대로 로드되지 않았습니다.', '#f00');
+            } else {
+                output('✅ v17.0 하이브리드 정상 작동!', '#0f0');
+            }
+        };
+
+        window.validateDB = function() {
+            if (!window.fashionApp) {
+                output('❌ 앱이 로드되지 않았습니다', '#f00');
+                return;
+            }
+            
+            output('=== DB 검증 시작 ===', '#ff0');
+            window.fashionApp.validateDatabase();
+            
+            // DB 통계
+            const db = window.fashionApp.imageDatabase;
+            if (db.length > 0) {
+                output(`DB 크기: ${db.length}개`, '#0ff');
+                output(`첫 번째 이미지: ${db[0].name}`, '#0ff');
+                output(`특징 차원: ${db[0].features.length}`, '#0ff');
+                
+                if (db[0].features.length !== 544 && db[0].features.length !== 392) {
+                    output('⚠️ 비정상적인 특징 차원!', '#f00');
+                }
+            } else {
+                output('DB가 비어있습니다', '#ff0');
+            }
+        };
+
+        window.clearDB = async function() {
+            if (!window.fashionApp) {
+                output('❌ 앱이 로드되지 않았습니다', '#f00');
+                return;
+            }
+            
+            if (confirm('정말로 모든 데이터를 삭제하시겠습니까?')) {
+                output('DB 초기화 중...', '#ff0');
+                await window.fashionApp.storage.clear();
+                window.fashionApp.imageDatabase = [];
+                output('✅ DB 초기화 완료', '#0f0');
+                
+                setTimeout(() => {
+                    output('페이지 새로고침...', '#ff0');
+                    location.reload();
+                }, 1000);
+            }
+        };
+
+        window.testImageUpload = function() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    output(`이미지 로드: ${file.name}`, '#0ff');
+                    
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        const img = new Image();
+                        img.onload = async () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = Math.min(200, img.width);
+                            canvas.height = Math.min(200, img.height);
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            
+                            if (window.fashionApp) {
+                                const features = await window.fashionApp.extractHybridFeatures(imageData, canvas);
+                                output(`특징 추출 완료: ${features.length}차원`, '#0f0');
+                                document.getElementById('feature-dim').textContent = `${features.length}차원`;
+                                
+                                if (features.length !== 544) {
+                                    output('⚠️ 비정상적인 차원!', '#f00');
+                                }
+                            }
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+            input.click();
+        };
+
+        // 초기 확인
+        setTimeout(() => {
+            checkApp();
+        }, 1000);
+    </script>
+</body>
+</html>

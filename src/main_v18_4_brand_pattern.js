@@ -1,13 +1,13 @@
-// Fashion Image Search v18.5 - Pure Similarity
-// 브랜드 구분 제거, 순수 유사도 기반
+// Fashion Image Search v18.4 - Brand Pattern Enhancement
+// 브랜드별 패턴 인식 강화 버전
 // 2025-01-03
 
-console.log('🚀 Fashion Search v18.5 - Pure Similarity');
+console.log('🚀 Fashion Search v18.4 - Brand Pattern Enhancement');
 
 class LuxuryFashionSearchApp {
     constructor() {
-        this.version = 'v18.5.0-PURE-SIMILARITY';
-        this.dbName = 'fashionSearchDB_v18_5';
+        this.version = 'v18.4.0-BRAND-PATTERN';
+        this.dbName = 'fashionSearchDB_v18_4';
         this.db = null;
         this.currentMode = 'search';
         this.models = {
@@ -15,6 +15,14 @@ class LuxuryFashionSearchApp {
             knnClassifier: null
         };
         this.isReady = false;
+        
+        // 브랜드별 패턴 특징 가중치
+        this.brandWeights = {
+            'LV': { pattern: 0.4, color: 0.3, shape: 0.3 },
+            'CHANEL': { pattern: 0.3, color: 0.2, shape: 0.5 },
+            'GOYARD': { pattern: 0.5, color: 0.3, shape: 0.2 }
+        };
+        
         this.init();
     }
     
@@ -51,19 +59,13 @@ class LuxuryFashionSearchApp {
                 version: 2,
                 alpha: 1.0
             });
-            console.log('✅ MobileNet v2 로드 완료');
+            console.log('✅ MobileNet 로드 완료');
             
             await this.loadScript('https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.2/dist/knn-classifier.min.js');
             this.models.knnClassifier = knnClassifier.create();
             console.log('✅ KNN Classifier 로드 완료');
             
-            // WebGL 최적화
-            if (tf.getBackend() !== 'webgl') {
-                await tf.setBackend('webgl');
-                console.log('✅ WebGL 가속 활성화');
-            }
-            
-            this.updateStatus('✅ 모든 시스템 준비 완료!');
+            this.updateStatus('✅ 모든 시스템 준비 완료! (AI 모델 포함)');
             
             await this.checkAndMigrateDB();
             
@@ -72,6 +74,347 @@ class LuxuryFashionSearchApp {
             this.updateStatus('⚠️ AI 모델 로딩 실패. 기본 기능은 사용 가능합니다.');
         }
     }
+    
+    // 브랜드 감지 함수 (파일명 기반)
+    detectBrand(filename) {
+        const name = filename.toLowerCase();
+        
+        // 파일명에서 브랜드 식별
+        if (name.includes('lv') || name.includes('louis') || name.includes('vuitton')) {
+            return 'LV';
+        } else if (name.includes('chanel') || name.includes('샤넬')) {
+            return 'CHANEL';
+        } else if (name.includes('goyard') || name.includes('고야드')) {
+            return 'GOYARD';
+        }
+        
+        // 코드 번호로 브랜드 추정 (801XX 패턴)
+        const codeMatch = name.match(/80(\d{3})/);
+        if (codeMatch) {
+            const code = parseInt(codeMatch[1]);
+            if (code >= 140 && code <= 160) return 'LV';
+            else if (code >= 160 && code <= 190) return 'CHANEL';
+            else if (code >= 100 && code <= 140) return 'GOYARD';
+        }
+        
+        return 'UNKNOWN';
+    }
+    
+    // 색상 특징 추출
+    async extractColorFeatures(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 50;
+        canvas.height = 50;
+        ctx.drawImage(imageElement, 0, 0, 50, 50);
+        
+        const imageData = ctx.getImageData(0, 0, 50, 50);
+        const data = imageData.data;
+        
+        let r = 0, g = 0, b = 0;
+        let browns = 0, blacks = 0, whites = 0;
+        
+        for (let i = 0; i < data.length; i += 4) {
+            r += data[i];
+            g += data[i + 1];
+            b += data[i + 2];
+            
+            // 색상 분류
+            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            if (avg < 60) blacks++;
+            else if (avg > 200) whites++;
+            else if (data[i] > data[i + 1] && data[i] > data[i + 2]) browns++;
+        }
+        
+        const pixelCount = data.length / 4;
+        
+        return {
+            avgR: r / pixelCount / 255,
+            avgG: g / pixelCount / 255,
+            avgB: b / pixelCount / 255,
+            brownRatio: browns / pixelCount,
+            blackRatio: blacks / pixelCount,
+            whiteRatio: whites / pixelCount
+        };
+    }
+    
+    // 패턴 특징 추출 (엣지 검출)
+    async extractPatternFeatures(imageElement) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 100;
+        canvas.height = 100;
+        ctx.drawImage(imageElement, 0, 0, 100, 100);
+        
+        const imageData = ctx.getImageData(0, 0, 100, 100);
+        const data = imageData.data;
+        
+        let edges = 0;
+        let diagonals = 0;
+        
+        // 간단한 엣지 검출
+        for (let y = 1; y < 99; y++) {
+            for (let x = 1; x < 99; x++) {
+                const idx = (y * 100 + x) * 4;
+                const left = (y * 100 + (x - 1)) * 4;
+                const top = ((y - 1) * 100 + x) * 4;
+                
+                const diffH = Math.abs(data[idx] - data[left]);
+                const diffV = Math.abs(data[idx] - data[top]);
+                
+                if (diffH > 30 || diffV > 30) edges++;
+                
+                // 대각선 패턴 검출 (퀼팅용)
+                const topLeft = ((y - 1) * 100 + (x - 1)) * 4;
+                const diffDiag = Math.abs(data[idx] - data[topLeft]);
+                if (diffDiag > 30) diagonals++;
+            }
+        }
+        
+        return {
+            edgeDensity: edges / (100 * 100),
+            diagonalRatio: diagonals / edges
+        };
+    }
+    
+    // 향상된 특징 추출
+    async extractEnhancedFeatures(imageElement, filename) {
+        const brand = this.detectBrand(filename);
+        
+        // MobileNet 기본 특징
+        const mobileNetFeatures = await this.extractFeaturesArray(imageElement);
+        
+        // 색상 특징
+        const colorFeatures = await this.extractColorFeatures(imageElement);
+        
+        // 패턴 특징
+        const patternFeatures = await this.extractPatternFeatures(imageElement);
+        
+        // 브랜드별 특징 벡터 생성
+        const brandVector = this.createBrandVector(brand, colorFeatures, patternFeatures);
+        
+        // 특징 결합 (MobileNet + 브랜드 특징)
+        const enhancedFeatures = [
+            ...mobileNetFeatures,
+            ...brandVector
+        ];
+        
+        return {
+            embedding: enhancedFeatures,
+            brand: brand,
+            colorFeatures: colorFeatures,
+            patternFeatures: patternFeatures
+        };
+    }
+    
+    // 브랜드 특징 벡터 생성
+    createBrandVector(brand, colorFeatures, patternFeatures) {
+        const vector = new Array(20).fill(0);
+        
+        // 브랜드별 특징 강조
+        switch(brand) {
+            case 'LV':
+                // 루이비통: 브라운 색상, 모노그램 패턴
+                vector[0] = colorFeatures.brownRatio * 2;
+                vector[1] = colorFeatures.avgR;
+                vector[2] = patternFeatures.edgeDensity;
+                vector[3] = 1; // LV 플래그
+                break;
+                
+            case 'CHANEL':
+                // 샤넬: 블랙/화이트, 퀼팅 패턴
+                vector[4] = colorFeatures.blackRatio * 2;
+                vector[5] = colorFeatures.whiteRatio;
+                vector[6] = patternFeatures.diagonalRatio * 2;
+                vector[7] = 1; // CHANEL 플래그
+                break;
+                
+            case 'GOYARD':
+                // 고야드: Y자 패턴, 다양한 색상
+                vector[8] = patternFeatures.edgeDensity * 1.5;
+                vector[9] = patternFeatures.diagonalRatio;
+                vector[10] = 1; // GOYARD 플래그
+                break;
+                
+            default:
+                vector[11] = 1; // UNKNOWN 플래그
+        }
+        
+        return vector;
+    }
+    
+    // 파일 처리 (수정된 버전)
+    async processFile(file) {
+        const dataUrl = await this.fileToDataUrl(file);
+        const img = await this.loadImage(dataUrl);
+        
+        let enhancedData;
+        
+        if (this.models.mobileNet) {
+            try {
+                enhancedData = await this.extractEnhancedFeatures(img, file.name);
+                console.log(`✅ ${file.name} - 브랜드: ${enhancedData.brand}, 임베딩 크기: ${enhancedData.embedding.length}`);
+            } catch (error) {
+                console.warn('특징 추출 실패:', error.message);
+                enhancedData = {
+                    embedding: new Array(1300).fill(0), // 1280 + 20
+                    brand: 'UNKNOWN'
+                };
+            }
+        } else {
+            enhancedData = {
+                embedding: new Array(1300).fill(0),
+                brand: 'UNKNOWN'
+            };
+        }
+        
+        const imageData = {
+            filename: file.name,
+            path: dataUrl,
+            embedding: enhancedData.embedding,
+            brand: enhancedData.brand,
+            colorFeatures: enhancedData.colorFeatures,
+            patternFeatures: enhancedData.patternFeatures,
+            indexed: new Date().toISOString()
+        };
+        
+        await this.saveImageToDB(imageData);
+    }
+    
+    // 검색 이미지 처리 (수정된 버전)
+    async processSearchImage(file) {
+        if (!this.models.mobileNet) {
+            alert('AI 모델이 아직 로드 중입니다. 잠시만 기다려주세요.');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const img = new Image();
+            img.onload = async () => {
+                document.getElementById('previewImage').src = e.target.result;
+                document.getElementById('previewContainer').style.display = 'block';
+                document.getElementById('searchStatus').textContent = '🔍 검색 중...';
+                
+                try {
+                    const enhancedData = await this.extractEnhancedFeatures(img, file.name);
+                    console.log(`검색 이미지 - 브랜드: ${enhancedData.brand}, 임베딩 크기: ${enhancedData.embedding.length}`);
+                    
+                    await this.searchSimilar(enhancedData);
+                    
+                    document.getElementById('searchStatus').textContent = '✅ 검색 완료';
+                } catch (error) {
+                    console.error('검색 오류:', error);
+                    document.getElementById('searchStatus').textContent = '❌ 검색 실패: ' + error.message;
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // 유사 이미지 검색 (브랜드 가중치 적용)
+    async searchSimilar(queryData) {
+        const transaction = this.db.transaction(['images'], 'readonly');
+        const store = transaction.objectStore('images');
+        const request = store.getAll();
+        
+        request.onsuccess = () => {
+            const images = request.result;
+            const results = [];
+            
+            console.log(`검색 대상: ${images.length}개 이미지`);
+            
+            for (const image of images) {
+                if (!image.embedding || image.embedding.length < 1280) {
+                    console.warn(`${image.filename}: 잘못된 임베딩`);
+                    continue;
+                }
+                
+                // 기본 유사도 계산
+                let similarity = this.cosineSimilarity(
+                    queryData.embedding.slice(0, 1280),
+                    image.embedding.slice(0, 1280)
+                );
+                
+                // 브랜드 보너스 (같은 브랜드면 가중치 부여)
+                if (queryData.brand !== 'UNKNOWN' && queryData.brand === image.brand) {
+                    similarity *= 1.2; // 20% 보너스
+                }
+                
+                // 브랜드가 다르면 페널티
+                if (queryData.brand !== 'UNKNOWN' && image.brand !== 'UNKNOWN' && 
+                    queryData.brand !== image.brand) {
+                    similarity *= 0.8; // 20% 페널티
+                }
+                
+                // 색상/패턴 특징 추가 비교 (있는 경우)
+                if (image.colorFeatures && queryData.colorFeatures) {
+                    const colorSim = this.compareColorFeatures(
+                        queryData.colorFeatures,
+                        image.colorFeatures
+                    );
+                    similarity = similarity * 0.8 + colorSim * 0.2;
+                }
+                
+                results.push({
+                    ...image,
+                    similarity: Math.min(similarity, 1.0) // 최대값 1.0으로 제한
+                });
+            }
+            
+            console.log(`유효한 결과: ${results.length}개`);
+            
+            // 유사도 순으로 정렬
+            results.sort((a, b) => b.similarity - a.similarity);
+            
+            // 상위 20개 표시
+            this.displayResults(results.slice(0, 20));
+        };
+    }
+    
+    // 색상 특징 비교
+    compareColorFeatures(features1, features2) {
+        if (!features1 || !features2) return 0;
+        
+        const diff = Math.abs(features1.avgR - features2.avgR) +
+                    Math.abs(features1.avgG - features2.avgG) +
+                    Math.abs(features1.avgB - features2.avgB) +
+                    Math.abs(features1.brownRatio - features2.brownRatio) * 0.5 +
+                    Math.abs(features1.blackRatio - features2.blackRatio) * 0.5;
+        
+        return Math.max(0, 1 - diff / 3);
+    }
+    
+    // MobileNet 특징 추출 (기존 함수 유지)
+    async extractFeaturesArray(imageElement) {
+        if (!this.models.mobileNet) {
+            throw new Error('MobileNet이 아직 로드되지 않았습니다');
+        }
+        
+        try {
+            const embeddings = this.models.mobileNet.infer(imageElement, true);
+            const norm = tf.norm(embeddings);
+            const normalized = tf.div(embeddings, norm);
+            const arrayData = await normalized.array();
+            
+            embeddings.dispose();
+            norm.dispose();
+            normalized.dispose();
+            
+            if (Array.isArray(arrayData[0])) {
+                return arrayData[0];
+            }
+            
+            return arrayData;
+            
+        } catch (error) {
+            console.error('특징 추출 오류:', error);
+            throw error;
+        }
+    }
+    
+    // 나머지 함수들은 v18.3과 동일...
     
     loadScript(src) {
         return new Promise((resolve, reject) => {
@@ -86,7 +429,7 @@ class LuxuryFashionSearchApp {
     setupUI() {
         const html = `
             <div id="fashionSearchApp">
-                <h1>🎯 Fashion Search v18.5</h1>
+                <h1>🎯 Fashion Search v18.4 - Brand Pattern</h1>
                 <div id="status">🔄 초기화 중...</div>
                 
                 <div class="mode-buttons">
@@ -104,6 +447,7 @@ class LuxuryFashionSearchApp {
                     <div id="previewContainer" style="display:none;">
                         <img id="previewImage" style="max-width:400px;">
                         <div id="searchStatus"></div>
+                        <div id="brandInfo" style="margin-top:10px;"></div>
                     </div>
                     
                     <div id="results"></div>
@@ -135,7 +479,7 @@ class LuxuryFashionSearchApp {
                     <button id="testBtn">🧪 시스템 테스트</button>
                     <button id="validateBtn">✔️ DB 검증</button>
                     <button id="clearAllBtn">💣 완전 초기화</button>
-                    <button id="analyzeBtn">📊 유사도 분석</button>
+                    <button id="reindexBtn">🔄 임베딩 재인덱싱</button>
                     <pre id="debugConsole"></pre>
                 </div>
             </div>
@@ -160,16 +504,16 @@ class LuxuryFashionSearchApp {
             
             uploadArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                uploadArea.style.background = '#e8f5e9';
+                uploadArea.style.background = '#e3f2fd';
             });
             
             uploadArea.addEventListener('dragleave', () => {
-                uploadArea.style.background = '#f5f5f5';
+                uploadArea.style.background = '#fafafa';
             });
             
             uploadArea.addEventListener('drop', (e) => {
                 e.preventDefault();
-                uploadArea.style.background = '#f5f5f5';
+                uploadArea.style.background = '#fafafa';
                 const file = e.dataTransfer.files[0];
                 if (file && file.type.startsWith('image/')) {
                     this.processSearchImage(file);
@@ -202,8 +546,8 @@ class LuxuryFashionSearchApp {
         if (dropZone) {
             dropZone.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                dropZone.style.borderColor = '#4caf50';
-                dropZone.style.background = '#e8f5e9';
+                dropZone.style.borderColor = '#1976d2';
+                dropZone.style.background = '#e3f2fd';
             });
             
             dropZone.addEventListener('dragleave', () => {
@@ -231,7 +575,7 @@ class LuxuryFashionSearchApp {
         document.getElementById('testBtn')?.addEventListener('click', () => this.runTest());
         document.getElementById('validateBtn')?.addEventListener('click', () => this.validateDB());
         document.getElementById('clearAllBtn')?.addEventListener('click', () => this.clearAndReload());
-        document.getElementById('analyzeBtn')?.addEventListener('click', () => this.analyzeSimilarity());
+        document.getElementById('reindexBtn')?.addEventListener('click', () => this.reindexAll());
         
         // 모드 전환
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -249,7 +593,7 @@ class LuxuryFashionSearchApp {
             
             body {
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 padding: 20px;
                 min-height: 100vh;
             }
@@ -258,42 +602,44 @@ class LuxuryFashionSearchApp {
                 max-width: 1200px;
                 margin: 0 auto;
                 background: white;
-                border-radius: 16px;
+                border-radius: 20px;
                 padding: 30px;
-                box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             }
             
             h1 {
-                color: #333;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
                 margin-bottom: 20px;
                 font-size: 32px;
                 text-align: center;
             }
             
             #status {
-                background: #f0f4f8;
-                color: #2c3e50;
+                background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+                color: #5e35b1;
                 padding: 15px;
-                border-radius: 10px;
+                border-radius: 12px;
                 margin-bottom: 25px;
                 font-weight: 600;
                 text-align: center;
-                border-left: 4px solid #4caf50;
+                border: 2px solid #7e57c2;
             }
             
             .mode-buttons {
                 display: flex;
-                gap: 10px;
+                gap: 12px;
                 margin-bottom: 30px;
             }
             
             .mode-btn {
                 flex: 1;
-                padding: 14px 20px;
+                padding: 15px 20px;
                 background: white;
                 border: 2px solid #e0e0e0;
                 color: #666;
-                border-radius: 10px;
+                border-radius: 12px;
                 cursor: pointer;
                 font-size: 16px;
                 font-weight: 600;
@@ -302,32 +648,32 @@ class LuxuryFashionSearchApp {
             
             .mode-btn:hover {
                 transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
             }
             
             .mode-btn.active {
-                background: #4caf50;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                border-color: #4caf50;
+                border-color: transparent;
             }
             
             .upload-area {
-                border: 3px dashed #4caf50;
-                border-radius: 16px;
-                padding: 60px 20px;
+                border: 3px dashed #7e57c2;
+                border-radius: 20px;
+                padding: 80px 20px;
                 text-align: center;
                 cursor: pointer;
-                background: #f5f5f5;
+                background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
                 transition: all 0.3s;
             }
             
             .upload-area:hover {
-                background: #e8f5e9;
-                transform: scale(1.01);
+                background: linear-gradient(135deg, #f3e5f5 0%, #e3f2fd 100%);
+                transform: scale(1.02);
             }
             
             .upload-area p {
-                color: #4caf50;
+                color: #5e35b1;
                 font-size: 20px;
                 font-weight: 600;
             }
@@ -340,72 +686,70 @@ class LuxuryFashionSearchApp {
             }
             
             .primary-btn, .secondary-btn, .danger-btn {
-                padding: 16px;
+                padding: 18px;
                 border: none;
-                border-radius: 10px;
+                border-radius: 12px;
                 cursor: pointer;
-                font-size: 15px;
+                font-size: 16px;
                 font-weight: 600;
                 transition: all 0.3s;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
             }
             
             .primary-btn {
-                background: #4caf50;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
             }
             
             .primary-btn:hover {
-                background: #45a049;
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3);
+                transform: translateY(-3px);
+                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.5);
             }
             
             .secondary-btn {
-                background: #607d8b;
+                background: linear-gradient(135deg, #78909c 0%, #546e7a 100%);
                 color: white;
             }
             
             .secondary-btn:hover {
-                background: #546e7a;
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(96, 125, 139, 0.3);
+                transform: translateY(-3px);
+                box-shadow: 0 10px 30px rgba(120, 144, 156, 0.5);
             }
             
             .danger-btn {
-                background: #f44336;
+                background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
                 color: white;
             }
             
             .danger-btn:hover {
-                background: #e53935;
-                transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(244, 67, 54, 0.3);
+                transform: translateY(-3px);
+                box-shadow: 0 10px 30px rgba(244, 67, 54, 0.5);
             }
             
             #dropZone {
-                border: 3px dashed #bdbdbd;
-                border-radius: 16px;
-                padding: 40px;
+                border: 3px dashed #b39ddb;
+                border-radius: 20px;
+                padding: 50px;
                 text-align: center;
-                background: #fafafa;
+                background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
                 transition: all 0.3s;
                 margin-bottom: 25px;
             }
             
             #dropZone:hover {
-                background: #f5f5f5;
-                border-color: #4caf50;
+                background: linear-gradient(135deg, #f3e5f5 0%, #e3f2fd 100%);
             }
             
             #dropZone h3 {
-                color: #666;
-                margin-bottom: 10px;
-                font-size: 22px;
+                color: #5e35b1;
+                margin-bottom: 15px;
+                font-size: 24px;
             }
             
             #dropZone p {
-                color: #999;
-                font-size: 15px;
+                color: #9575cd;
+                font-size: 16px;
             }
             
             #previewContainer {
@@ -415,39 +759,47 @@ class LuxuryFashionSearchApp {
             
             #previewImage {
                 max-width: 100%;
-                border-radius: 12px;
-                box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+                border-radius: 15px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.2);
             }
             
             #searchStatus {
                 margin-top: 20px;
-                padding: 12px;
-                background: #f0f4f8;
-                border-radius: 10px;
+                padding: 15px;
+                background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+                border-radius: 12px;
                 font-weight: 600;
-                color: #2c3e50;
+                color: #5e35b1;
+            }
+            
+            #brandInfo {
+                padding: 10px;
+                background: #fff3e0;
+                border-radius: 8px;
+                color: #e65100;
+                font-weight: 600;
             }
             
             #results {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                gap: 20px;
-                margin-top: 30px;
+                gap: 25px;
+                margin-top: 35px;
             }
             
             .result-item {
                 background: white;
-                border-radius: 12px;
+                border-radius: 15px;
                 overflow: hidden;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+                box-shadow: 0 5px 20px rgba(0,0,0,0.1);
                 transition: all 0.3s;
                 cursor: pointer;
                 position: relative;
             }
             
             .result-item:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+                transform: translateY(-8px) scale(1.03);
+                box-shadow: 0 15px 40px rgba(0,0,0,0.2);
             }
             
             .result-item img {
@@ -457,54 +809,41 @@ class LuxuryFashionSearchApp {
             }
             
             .result-info {
-                padding: 12px;
-                background: #fafafa;
+                padding: 15px;
+                background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
             }
             
             .similarity-score {
-                font-size: 22px;
+                font-size: 24px;
                 font-weight: bold;
-                color: #4caf50;
-                margin-bottom: 4px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
             
-            .similarity-bar {
-                height: 4px;
-                background: #e0e0e0;
-                border-radius: 2px;
-                overflow: hidden;
-                margin-top: 8px;
-            }
-            
-            .similarity-fill {
-                height: 100%;
-                background: linear-gradient(90deg, #4caf50, #8bc34a);
-                transition: width 0.3s;
-            }
-            
-            .rank-badge {
+            .brand-badge {
                 position: absolute;
                 top: 10px;
-                left: 10px;
+                right: 10px;
+                padding: 5px 10px;
                 background: rgba(0,0,0,0.7);
                 color: white;
-                padding: 4px 10px;
-                border-radius: 20px;
-                font-size: 12px;
+                border-radius: 15px;
+                font-size: 11px;
                 font-weight: bold;
             }
             
             .progress-bar {
                 background: #f0f0f0;
-                border-radius: 10px;
+                border-radius: 15px;
                 overflow: hidden;
-                margin: 20px 0;
-                height: 30px;
-                box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+                margin: 25px 0;
+                height: 35px;
+                box-shadow: inset 0 2px 5px rgba(0,0,0,0.1);
             }
             
             .progress-fill {
-                background: linear-gradient(90deg, #4caf50, #8bc34a);
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 height: 100%;
                 display: flex;
                 align-items: center;
@@ -512,227 +851,27 @@ class LuxuryFashionSearchApp {
                 color: white;
                 font-weight: bold;
                 transition: width 0.3s;
+                box-shadow: 0 2px 10px rgba(102, 126, 234, 0.5);
             }
             
             #debugConsole {
                 background: #1e1e1e;
-                color: #4caf50;
-                padding: 20px;
-                border-radius: 10px;
+                color: #4fc3f7;
+                padding: 25px;
+                border-radius: 15px;
                 font-family: 'Courier New', monospace;
-                font-size: 13px;
+                font-size: 14px;
                 max-height: 400px;
                 overflow-y: auto;
                 white-space: pre-wrap;
-                margin-top: 20px;
-                line-height: 1.5;
+                margin-top: 25px;
+                box-shadow: inset 0 2px 10px rgba(0,0,0,0.3);
             }
-            
-            /* 유사도에 따른 색상 변화 */
-            .similarity-score.high { color: #2e7d32; }
-            .similarity-score.medium { color: #f57c00; }
-            .similarity-score.low { color: #d32f2f; }
         `;
         document.head.appendChild(style);
     }
     
-    // 파일 처리 - 심플하고 효율적으로
-    async processFile(file) {
-        const dataUrl = await this.fileToDataUrl(file);
-        const img = await this.loadImage(dataUrl);
-        
-        let embedding = [];
-        
-        if (this.models.mobileNet) {
-            try {
-                // MobileNet 특징 추출 (레이어 조정)
-                embedding = await this.extractEnhancedFeatures(img);
-                
-                if (!embedding || embedding.length === 0) {
-                    throw new Error('특징 추출 실패');
-                }
-                
-            } catch (error) {
-                console.warn('특징 추출 실패, 기본값 사용:', error.message);
-                embedding = new Array(1280).fill(0);
-            }
-        } else {
-            embedding = new Array(1280).fill(0);
-        }
-        
-        const imageData = {
-            filename: file.name,
-            path: dataUrl,
-            embedding: embedding,
-            indexed: new Date().toISOString()
-        };
-        
-        await this.saveImageToDB(imageData);
-        console.log(`✅ ${file.name} - 임베딩 크기: ${embedding.length}`);
-    }
-    
-    // 향상된 특징 추출 (더 깊은 레이어 사용)
-    async extractEnhancedFeatures(imageElement) {
-        if (!this.models.mobileNet) {
-            throw new Error('MobileNet이 아직 로드되지 않았습니다');
-        }
-        
-        try {
-            // 기본 특징 추출
-            const embeddings = this.models.mobileNet.infer(imageElement, true);
-            
-            // L2 정규화 적용
-            const normalized = tf.tidy(() => {
-                const norm = tf.norm(embeddings, 2, 1, true);
-                return tf.div(embeddings, norm);
-            });
-            
-            // 배열로 변환
-            const arrayData = await normalized.array();
-            
-            // 메모리 해제
-            embeddings.dispose();
-            normalized.dispose();
-            
-            // 2차원 배열인 경우 첫 번째 요소 반환
-            if (Array.isArray(arrayData[0])) {
-                return arrayData[0];
-            }
-            
-            return arrayData;
-            
-        } catch (error) {
-            console.error('특징 추출 오류:', error);
-            
-            // 폴백: 단순 추출
-            const simple = this.models.mobileNet.infer(imageElement, true);
-            const data = await simple.array();
-            simple.dispose();
-            
-            if (Array.isArray(data[0])) {
-                return data[0];
-            }
-            return data;
-        }
-    }
-    
-    // 검색 이미지 처리
-    async processSearchImage(file) {
-        if (!this.models.mobileNet) {
-            alert('AI 모델이 아직 로드 중입니다. 잠시만 기다려주세요.');
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const img = new Image();
-            img.onload = async () => {
-                document.getElementById('previewImage').src = e.target.result;
-                document.getElementById('previewContainer').style.display = 'block';
-                document.getElementById('searchStatus').textContent = '🔍 검색 중...';
-                
-                try {
-                    const features = await this.extractEnhancedFeatures(img);
-                    console.log('검색 임베딩 크기:', features.length);
-                    
-                    await this.searchSimilar(features);
-                    
-                    document.getElementById('searchStatus').textContent = '✅ 검색 완료';
-                } catch (error) {
-                    console.error('검색 오류:', error);
-                    document.getElementById('searchStatus').textContent = '❌ 검색 실패: ' + error.message;
-                }
-            };
-            img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-    }
-    
-    // 유사 이미지 검색 (개선된 알고리즘)
-    async searchSimilar(queryFeatures) {
-        const transaction = this.db.transaction(['images'], 'readonly');
-        const store = transaction.objectStore('images');
-        const request = store.getAll();
-        
-        request.onsuccess = () => {
-            const images = request.result;
-            const results = [];
-            
-            console.log(`검색 대상: ${images.length}개 이미지`);
-            
-            // 유사도 계산 통계
-            let maxSim = 0;
-            let minSim = 1;
-            
-            for (const image of images) {
-                if (!image.embedding || image.embedding.length === 0) {
-                    console.warn(`${image.filename}: 잘못된 임베딩`);
-                    continue;
-                }
-                
-                // 코사인 유사도 계산
-                const similarity = this.improvedCosineSimilarity(queryFeatures, image.embedding);
-                
-                maxSim = Math.max(maxSim, similarity);
-                minSim = Math.min(minSim, similarity);
-                
-                results.push({
-                    ...image,
-                    similarity: similarity
-                });
-            }
-            
-            console.log(`유사도 범위: ${(minSim * 100).toFixed(1)}% ~ ${(maxSim * 100).toFixed(1)}%`);
-            
-            // 정규화 (상대적 점수로 변환)
-            const range = maxSim - minSim;
-            if (range > 0) {
-                results.forEach(r => {
-                    // 정규화: 0~1 범위로 조정
-                    const normalized = (r.similarity - minSim) / range;
-                    // 스케일링: 50~100% 범위로 조정 (더 직관적인 점수)
-                    r.displayScore = 50 + normalized * 50;
-                    // 원본 유사도도 보존
-                    r.originalSimilarity = r.similarity;
-                });
-            }
-            
-            // 정렬
-            results.sort((a, b) => b.similarity - a.similarity);
-            
-            // 상위 20개 표시
-            this.displayResults(results.slice(0, 20));
-        };
-    }
-    
-    // 개선된 코사인 유사도 계산
-    improvedCosineSimilarity(vec1, vec2) {
-        if (!vec1 || !vec2) return 0;
-        
-        const len = Math.min(vec1.length, vec2.length);
-        
-        let dotProduct = 0;
-        let norm1 = 0;
-        let norm2 = 0;
-        
-        for (let i = 0; i < len; i++) {
-            const v1 = vec1[i] || 0;
-            const v2 = vec2[i] || 0;
-            
-            dotProduct += v1 * v2;
-            norm1 += v1 * v1;
-            norm2 += v2 * v2;
-        }
-        
-        if (norm1 === 0 || norm2 === 0) return 0;
-        
-        const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-        
-        // 클램핑 (0~1 범위)
-        return Math.max(0, Math.min(1, similarity));
-    }
-    
-    // 결과 표시 (개선된 UI)
+    // 결과 표시 (브랜드 표시 추가)
     displayResults(results) {
         const resultsDiv = document.getElementById('results');
         
@@ -742,110 +881,31 @@ class LuxuryFashionSearchApp {
         }
         
         resultsDiv.innerHTML = results.map((item, index) => {
-            // displayScore 사용 (정규화된 점수)
-            const score = item.displayScore ? item.displayScore.toFixed(1) : (item.similarity * 100).toFixed(1);
+            const score = (item.similarity * 100).toFixed(1);
+            const validScore = isNaN(score) ? 0 : score;
             
-            // 점수에 따른 색상 클래스
-            let scoreClass = 'high';
-            if (score < 70) scoreClass = 'medium';
-            if (score < 50) scoreClass = 'low';
-            
-            // 순위에 따른 뱃지 색상
-            let rankColor = '#4caf50';
-            if (index >= 3) rankColor = '#ff9800';
-            if (index >= 10) rankColor = '#9e9e9e';
+            const brandColors = {
+                'LV': '#8B4513',
+                'CHANEL': '#000000',
+                'GOYARD': '#FF6B35',
+                'UNKNOWN': '#999999'
+            };
             
             return `
                 <div class="result-item" data-rank="${index + 1}">
-                    <div class="rank-badge" style="background: ${rankColor}">#${index + 1}</div>
+                    ${item.brand ? `<div class="brand-badge" style="background: ${brandColors[item.brand]}">${item.brand}</div>` : ''}
                     <img src="${item.path}" alt="${item.filename}">
                     <div class="result-info">
-                        <div class="similarity-score ${scoreClass}">${score}%</div>
+                        <div class="similarity-score">${validScore}%</div>
                         <div style="font-size:12px;color:#666;">${item.filename}</div>
-                        <div class="similarity-bar">
-                            <div class="similarity-fill" style="width: ${score}%"></div>
-                        </div>
+                        <div style="font-size:10px;color:#999;">순위: ${index + 1}</div>
                     </div>
                 </div>
             `;
         }).join('');
     }
     
-    // 유사도 분석 도구
-    async analyzeSimilarity() {
-        const transaction = this.db.transaction(['images'], 'readonly');
-        const store = transaction.objectStore('images');
-        const request = store.getAll();
-        
-        request.onsuccess = () => {
-            const images = request.result;
-            const console = document.getElementById('debugConsole');
-            
-            if (images.length < 2) {
-                console.textContent = '분석하려면 최소 2개 이상의 이미지가 필요합니다.';
-                return;
-            }
-            
-            console.textContent = '=== 유사도 분석 ===\n\n';
-            console.textContent += `총 ${images.length}개 이미지 분석 중...\n\n`;
-            
-            // 샘플링: 처음 10개만 분석
-            const samples = images.slice(0, Math.min(10, images.length));
-            const matrix = [];
-            
-            for (let i = 0; i < samples.length; i++) {
-                const row = [];
-                for (let j = 0; j < samples.length; j++) {
-                    if (i === j) {
-                        row.push(1.0);
-                    } else {
-                        const sim = this.improvedCosineSimilarity(
-                            samples[i].embedding,
-                            samples[j].embedding
-                        );
-                        row.push(sim);
-                    }
-                }
-                matrix.push(row);
-            }
-            
-            // 유사도 매트릭스 출력
-            console.textContent += '유사도 매트릭스 (상위 10개):\n\n';
-            console.textContent += '      ';
-            samples.forEach((_, i) => {
-                console.textContent += `  ${String(i+1).padStart(2, '0')} `;
-            });
-            console.textContent += '\n';
-            
-            matrix.forEach((row, i) => {
-                console.textContent += `${String(i+1).padStart(2, '0')}: `;
-                row.forEach(val => {
-                    const percent = (val * 100).toFixed(0);
-                    console.textContent += `${percent.padStart(3, ' ')}% `;
-                });
-                console.textContent += `  ${samples[i].filename.substring(0, 15)}\n`;
-            });
-            
-            // 평균 유사도 계산
-            let totalSim = 0;
-            let count = 0;
-            
-            for (let i = 0; i < matrix.length; i++) {
-                for (let j = i + 1; j < matrix[i].length; j++) {
-                    totalSim += matrix[i][j];
-                    count++;
-                }
-            }
-            
-            const avgSim = totalSim / count;
-            
-            console.textContent += `\n평균 유사도: ${(avgSim * 100).toFixed(2)}%\n`;
-            console.textContent += `최소 유사도: ${(Math.min(...matrix.flat()) * 100).toFixed(2)}%\n`;
-            console.textContent += `최대 유사도: ${(Math.max(...matrix.flat().filter(v => v < 1)) * 100).toFixed(2)}%\n`;
-        };
-    }
-    
-    // 나머지 함수들은 v18.3과 동일
+    // 파일 선택 함수들
     async selectMultipleFiles() {
         if (!this.checkReady()) return;
         
@@ -957,6 +1017,7 @@ class LuxuryFashionSearchApp {
         await this.validateDB();
     }
     
+    // 유틸리티 함수들
     fileToDataUrl(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -975,6 +1036,41 @@ class LuxuryFashionSearchApp {
         });
     }
     
+    cosineSimilarity(vec1, vec2) {
+        if (!vec1 || !vec2) {
+            console.error('벡터가 null입니다');
+            return 0;
+        }
+        
+        const len = Math.min(vec1.length, vec2.length);
+        
+        let dotProduct = 0;
+        let norm1 = 0;
+        let norm2 = 0;
+        
+        for (let i = 0; i < len; i++) {
+            const v1 = vec1[i] || 0;
+            const v2 = vec2[i] || 0;
+            
+            dotProduct += v1 * v2;
+            norm1 += v1 * v1;
+            norm2 += v2 * v2;
+        }
+        
+        if (norm1 === 0 || norm2 === 0) {
+            return 0;
+        }
+        
+        const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+        
+        if (isNaN(similarity)) {
+            return 0;
+        }
+        
+        return similarity;
+    }
+    
+    // DB 관리 함수들
     async openDB() {
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(this.dbName, 2);
@@ -996,6 +1092,7 @@ class LuxuryFashionSearchApp {
                 if (!db.objectStoreNames.contains('images')) {
                     const store = db.createObjectStore('images', { keyPath: 'filename' });
                     store.createIndex('date', 'indexed', { unique: false });
+                    store.createIndex('brand', 'brand', { unique: false });
                 }
             };
         });
@@ -1072,6 +1169,11 @@ class LuxuryFashionSearchApp {
         };
     }
     
+    async reindexAll() {
+        alert('재인덱싱 기능은 v18.4에서 준비 중입니다.');
+    }
+    
+    // 디버그 기능들
     async runTest() {
         const console = document.getElementById('debugConsole');
         console.textContent = '=== 시스템 테스트 ===\n\n';
@@ -1086,7 +1188,6 @@ class LuxuryFashionSearchApp {
         if (typeof tf !== 'undefined') {
             console.textContent += `\nTF Version: ${tf.version.tfjs}\n`;
             console.textContent += `Backend: ${tf.getBackend()}\n`;
-            console.textContent += `WebGL: ${tf.getBackend() === 'webgl' ? '✅' : '❌'}\n`;
         }
     }
     
@@ -1106,13 +1207,19 @@ class LuxuryFashionSearchApp {
             
             let validCount = 0;
             let invalidCount = 0;
+            const brandCounts = {};
             
             console.textContent = `=== DB 검증 ===\n\n`;
             console.textContent += `총 이미지: ${images.length}개\n\n`;
             
             for (const img of images) {
-                if (img.embedding && img.embedding.length === 1280) {
+                if (img.embedding && img.embedding.length >= 1280) {
                     validCount++;
+                    
+                    // 브랜드 카운트
+                    if (img.brand) {
+                        brandCounts[img.brand] = (brandCounts[img.brand] || 0) + 1;
+                    }
                 } else {
                     invalidCount++;
                     console.textContent += `❌ ${img.filename}: 잘못된 임베딩 (크기: ${img.embedding?.length || 0})\n`;
@@ -1122,15 +1229,17 @@ class LuxuryFashionSearchApp {
             console.textContent += `\n✅ 유효: ${validCount}개\n`;
             console.textContent += `❌ 무효: ${invalidCount}개\n`;
             
+            console.textContent += `\n브랜드별 분포:\n`;
+            for (const [brand, count] of Object.entries(brandCounts)) {
+                console.textContent += `  ${brand}: ${count}개\n`;
+            }
+            
             if (validCount > 0) {
                 console.textContent += `\n샘플 데이터 (상위 5개):\n`;
                 images.slice(0, 5).forEach((img, i) => {
                     console.textContent += `${i+1}. ${img.filename}\n`;
+                    console.textContent += `   브랜드: ${img.brand || 'UNKNOWN'}\n`;
                     console.textContent += `   임베딩 크기: ${img.embedding?.length || 0}\n`;
-                    if (img.embedding && img.embedding.length > 0) {
-                        const sample = img.embedding.slice(0, 3).map(v => v.toFixed(4)).join(', ');
-                        console.textContent += `   샘플: [${sample}, ...]\n`;
-                    }
                 });
             }
         };
@@ -1182,4 +1291,4 @@ window.addEventListener('DOMContentLoaded', () => {
     window.app = app;
 });
 
-console.log('Fashion Search v18.5 - Pure Similarity Ready');
+console.log('Fashion Search v18.4 - Brand Pattern Enhancement Ready');
