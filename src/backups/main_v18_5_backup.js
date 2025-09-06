@@ -1,13 +1,13 @@
-// Fashion Image Search v18.6 - Color Enhanced
-// 색상 특징 강화 버전
+// Fashion Image Search v18.5 - Pure Similarity
+// 브랜드 구분 제거, 순수 유사도 기반
 // 2025-01-03
 
-console.log('🚀 Fashion Search v18.6 - Color Enhanced');
+console.log('🚀 Fashion Search v18.5 - Pure Similarity');
 
 class LuxuryFashionSearchApp {
     constructor() {
-        this.version = 'v18.6.0-COLOR-ENHANCED';
-        this.dbName = 'fashionSearchDB_v18_6';
+        this.version = 'v18.5.0-PURE-SIMILARITY';
+        this.dbName = 'fashionSearchDB_v18_5';
         this.db = null;
         this.currentMode = 'search';
         this.models = {
@@ -57,6 +57,7 @@ class LuxuryFashionSearchApp {
             this.models.knnClassifier = knnClassifier.create();
             console.log('✅ KNN Classifier 로드 완료');
             
+            // WebGL 최적화
             if (tf.getBackend() !== 'webgl') {
                 await tf.setBackend('webgl');
                 console.log('✅ WebGL 가속 활성화');
@@ -72,439 +73,6 @@ class LuxuryFashionSearchApp {
         }
     }
     
-    // 색상 특징 추출 (강화된 버전)
-    async extractColorFeatures(imageElement) {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        // 더 큰 샘플링 영역 사용
-        canvas.width = 100;
-        canvas.height = 100;
-        ctx.drawImage(imageElement, 0, 0, 100, 100);
-        
-        const imageData = ctx.getImageData(0, 0, 100, 100);
-        const data = imageData.data;
-        
-        // RGB 히스토그램
-        const colorBins = {
-            red: new Array(16).fill(0),
-            green: new Array(16).fill(0),
-            blue: new Array(16).fill(0)
-        };
-        
-        // HSV 색상 분포
-        let hueHistogram = new Array(12).fill(0);  // 30도씩 12개 구간
-        let saturationSum = 0;
-        let brightnessSum = 0;
-        
-        // 주요 색상 카운트
-        let blackPixels = 0;
-        let whitePixels = 0;
-        let brownPixels = 0;
-        let beigePixels = 0;
-        let navyPixels = 0;
-        
-        const pixelCount = data.length / 4;
-        
-        for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            
-            // RGB 히스토그램 업데이트
-            colorBins.red[Math.floor(r / 16)]++;
-            colorBins.green[Math.floor(g / 16)]++;
-            colorBins.blue[Math.floor(b / 16)]++;
-            
-            // HSV 변환
-            const hsv = this.rgbToHsv(r, g, b);
-            const hueIndex = Math.floor(hsv.h / 30);
-            hueHistogram[hueIndex]++;
-            saturationSum += hsv.s;
-            brightnessSum += hsv.v;
-            
-            // 색상 분류 (더 정밀하게)
-            const avg = (r + g + b) / 3;
-            const maxChannel = Math.max(r, g, b);
-            const minChannel = Math.min(r, g, b);
-            const range = maxChannel - minChannel;
-            
-            // 블랙 (순수 검정 + 어두운 회색)
-            if (avg < 50) {
-                blackPixels++;
-            }
-            // 화이트 (순수 흰색 + 밝은 회색)
-            else if (avg > 220 && range < 30) {
-                whitePixels++;
-            }
-            // 브라운 (갈색 계열)
-            else if (r > g && g > b && r - b > 30 && avg > 50 && avg < 150) {
-                brownPixels++;
-            }
-            // 베이지 (밝은 갈색/크림색)
-            else if (r > g && g > b && avg > 150 && avg < 220 && range < 50) {
-                beigePixels++;
-            }
-            // 네이비 (어두운 파란색)
-            else if (b > r && b > g && avg < 100) {
-                navyPixels++;
-            }
-        }
-        
-        // 정규화
-        const features = {
-            // RGB 히스토그램 (48 features)
-            rgbHistogram: [
-                ...colorBins.red.map(v => v / pixelCount),
-                ...colorBins.green.map(v => v / pixelCount),
-                ...colorBins.blue.map(v => v / pixelCount)
-            ],
-            
-            // HSV 특징 (14 features)
-            hueHistogram: hueHistogram.map(v => v / pixelCount),
-            avgSaturation: saturationSum / pixelCount,
-            avgBrightness: brightnessSum / pixelCount,
-            
-            // 주요 색상 비율 (5 features)
-            blackRatio: blackPixels / pixelCount,
-            whiteRatio: whitePixels / pixelCount,
-            brownRatio: brownPixels / pixelCount,
-            beigeRatio: beigePixels / pixelCount,
-            navyRatio: navyPixels / pixelCount,
-            
-            // 색상 다양성 (1 feature)
-            colorDiversity: this.calculateColorDiversity(colorBins)
-        };
-        
-        // 벡터로 변환 (총 68 features)
-        return [
-            ...features.rgbHistogram,
-            ...features.hueHistogram,
-            features.avgSaturation,
-            features.avgBrightness,
-            features.blackRatio,
-            features.whiteRatio,
-            features.brownRatio,
-            features.beigeRatio,
-            features.navyRatio,
-            features.colorDiversity
-        ];
-    }
-    
-    // RGB to HSV 변환
-    rgbToHsv(r, g, b) {
-        r /= 255;
-        g /= 255;
-        b /= 255;
-        
-        const max = Math.max(r, g, b);
-        const min = Math.min(r, g, b);
-        const diff = max - min;
-        
-        let h = 0;
-        let s = max === 0 ? 0 : diff / max;
-        let v = max;
-        
-        if (diff !== 0) {
-            if (max === r) {
-                h = ((g - b) / diff + (g < b ? 6 : 0)) / 6;
-            } else if (max === g) {
-                h = ((b - r) / diff + 2) / 6;
-            } else {
-                h = ((r - g) / diff + 4) / 6;
-            }
-        }
-        
-        return {
-            h: h * 360,  // 0-360
-            s: s,        // 0-1
-            v: v         // 0-1
-        };
-    }
-    
-    // 색상 다양성 계산
-    calculateColorDiversity(colorBins) {
-        const allBins = [
-            ...colorBins.red,
-            ...colorBins.green,
-            ...colorBins.blue
-        ];
-        
-        // Shannon entropy 계산
-        let entropy = 0;
-        const total = allBins.reduce((a, b) => a + b, 0);
-        
-        for (const count of allBins) {
-            if (count > 0) {
-                const p = count / total;
-                entropy -= p * Math.log2(p);
-            }
-        }
-        
-        return entropy / Math.log2(48); // 정규화 (0-1)
-    }
-    
-    // 향상된 특징 추출 (MobileNet + 색상)
-    async extractCombinedFeatures(imageElement) {
-        // MobileNet 특징 (1280)
-        const mobileNetFeatures = await this.extractMobileNetFeatures(imageElement);
-        
-        // 색상 특징 (68)
-        const colorFeatures = await this.extractColorFeatures(imageElement);
-        
-        // 결합 (총 1348 features)
-        return [...mobileNetFeatures, ...colorFeatures];
-    }
-    
-    // MobileNet 특징 추출
-    async extractMobileNetFeatures(imageElement) {
-        if (!this.models.mobileNet) {
-            throw new Error('MobileNet이 아직 로드되지 않았습니다');
-        }
-        
-        try {
-            const embeddings = this.models.mobileNet.infer(imageElement, true);
-            
-            const normalized = tf.tidy(() => {
-                const norm = tf.norm(embeddings, 2, 1, true);
-                return tf.div(embeddings, norm);
-            });
-            
-            const arrayData = await normalized.array();
-            
-            embeddings.dispose();
-            normalized.dispose();
-            
-            if (Array.isArray(arrayData[0])) {
-                return arrayData[0];
-            }
-            
-            return arrayData;
-            
-        } catch (error) {
-            console.error('MobileNet 특징 추출 오류:', error);
-            return new Array(1280).fill(0);
-        }
-    }
-    
-    // 파일 처리
-    async processFile(file) {
-        const dataUrl = await this.fileToDataUrl(file);
-        const img = await this.loadImage(dataUrl);
-        
-        let embedding = [];
-        
-        if (this.models.mobileNet) {
-            try {
-                embedding = await this.extractCombinedFeatures(img);
-                
-                if (!embedding || embedding.length === 0) {
-                    throw new Error('특징 추출 실패');
-                }
-                
-            } catch (error) {
-                console.warn('특징 추출 실패, 기본값 사용:', error.message);
-                embedding = new Array(1348).fill(0);  // 1280 + 68
-            }
-        } else {
-            embedding = new Array(1348).fill(0);
-        }
-        
-        const imageData = {
-            filename: file.name,
-            path: dataUrl,
-            embedding: embedding,
-            indexed: new Date().toISOString()
-        };
-        
-        await this.saveImageToDB(imageData);
-        console.log(`✅ ${file.name} - 임베딩 크기: ${embedding.length}`);
-    }
-    
-    // 검색 이미지 처리
-    async processSearchImage(file) {
-        if (!this.models.mobileNet) {
-            alert('AI 모델이 아직 로드 중입니다. 잠시만 기다려주세요.');
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const img = new Image();
-            img.onload = async () => {
-                document.getElementById('previewImage').src = e.target.result;
-                document.getElementById('previewContainer').style.display = 'block';
-                document.getElementById('searchStatus').textContent = '🔍 검색 중...';
-                
-                try {
-                    const features = await this.extractCombinedFeatures(img);
-                    console.log('검색 임베딩 크기:', features.length);
-                    
-                    await this.searchSimilar(features);
-                    
-                    document.getElementById('searchStatus').textContent = '✅ 검색 완료';
-                } catch (error) {
-                    console.error('검색 오류:', error);
-                    document.getElementById('searchStatus').textContent = '❌ 검색 실패: ' + error.message;
-                }
-            };
-            img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-    }
-    
-    // 유사 이미지 검색 (색상 가중치 적용)
-    async searchSimilar(queryFeatures) {
-        const transaction = this.db.transaction(['images'], 'readonly');
-        const store = transaction.objectStore('images');
-        const request = store.getAll();
-        
-        request.onsuccess = () => {
-            const images = request.result;
-            const results = [];
-            
-            console.log(`검색 대상: ${images.length}개 이미지`);
-            
-            let maxSim = 0;
-            let minSim = 1;
-            
-            for (const image of images) {
-                if (!image.embedding || image.embedding.length === 0) {
-                    console.warn(`${image.filename}: 잘못된 임베딩`);
-                    continue;
-                }
-                
-                // 특징 분리
-                const queryMobileNet = queryFeatures.slice(0, 1280);
-                const queryColor = queryFeatures.slice(1280);
-                
-                let dbMobileNet, dbColor;
-                
-                if (image.embedding.length === 1348) {
-                    // v18.6 형식
-                    dbMobileNet = image.embedding.slice(0, 1280);
-                    dbColor = image.embedding.slice(1280);
-                } else if (image.embedding.length === 1280) {
-                    // v18.5 이전 형식 (색상 없음)
-                    dbMobileNet = image.embedding;
-                    dbColor = new Array(68).fill(0);
-                } else {
-                    console.warn(`${image.filename}: 알 수 없는 임베딩 크기`);
-                    continue;
-                }
-                
-                // MobileNet 유사도 (70% 가중치)
-                const mobileNetSim = this.cosineSimilarity(queryMobileNet, dbMobileNet);
-                
-                // 색상 유사도 (30% 가중치)
-                const colorSim = this.cosineSimilarity(queryColor, dbColor);
-                
-                // 가중 평균 (형태 70%, 색상 30%)
-                const combinedSim = mobileNetSim * 0.7 + colorSim * 0.3;
-                
-                maxSim = Math.max(maxSim, combinedSim);
-                minSim = Math.min(minSim, combinedSim);
-                
-                results.push({
-                    ...image,
-                    similarity: combinedSim,
-                    mobileNetSim: mobileNetSim,
-                    colorSim: colorSim
-                });
-            }
-            
-            console.log(`유사도 범위: ${(minSim * 100).toFixed(1)}% ~ ${(maxSim * 100).toFixed(1)}%`);
-            
-            // 정규화
-            const range = maxSim - minSim;
-            if (range > 0) {
-                results.forEach(r => {
-                    const normalized = (r.similarity - minSim) / range;
-                    r.displayScore = 50 + normalized * 50;
-                    r.originalSimilarity = r.similarity;
-                });
-            }
-            
-            // 정렬
-            results.sort((a, b) => b.similarity - a.similarity);
-            
-            // 디버그 정보 출력 (상위 5개)
-            console.log('=== 상위 5개 결과 ===');
-            results.slice(0, 5).forEach((r, i) => {
-                console.log(`${i+1}. ${r.filename}`);
-                console.log(`   전체: ${(r.similarity * 100).toFixed(1)}%`);
-                console.log(`   형태: ${(r.mobileNetSim * 100).toFixed(1)}%`);
-                console.log(`   색상: ${(r.colorSim * 100).toFixed(1)}%`);
-            });
-            
-            // 상위 20개 표시
-            this.displayResults(results.slice(0, 20));
-        };
-    }
-    
-    // 코사인 유사도
-    cosineSimilarity(vec1, vec2) {
-        if (!vec1 || !vec2) return 0;
-        
-        const len = Math.min(vec1.length, vec2.length);
-        
-        let dotProduct = 0;
-        let norm1 = 0;
-        let norm2 = 0;
-        
-        for (let i = 0; i < len; i++) {
-            const v1 = vec1[i] || 0;
-            const v2 = vec2[i] || 0;
-            
-            dotProduct += v1 * v2;
-            norm1 += v1 * v1;
-            norm2 += v2 * v2;
-        }
-        
-        if (norm1 === 0 || norm2 === 0) return 0;
-        
-        const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-        
-        return Math.max(0, Math.min(1, similarity));
-    }
-    
-    // 결과 표시
-    displayResults(results) {
-        const resultsDiv = document.getElementById('results');
-        
-        if (results.length === 0) {
-            resultsDiv.innerHTML = '<p style="text-align:center; color:#999;">검색 결과가 없습니다.</p>';
-            return;
-        }
-        
-        resultsDiv.innerHTML = results.map((item, index) => {
-            const score = item.displayScore ? item.displayScore.toFixed(1) : (item.similarity * 100).toFixed(1);
-            
-            let scoreClass = 'high';
-            if (score < 70) scoreClass = 'medium';
-            if (score < 50) scoreClass = 'low';
-            
-            let rankColor = '#4caf50';
-            if (index >= 3) rankColor = '#ff9800';
-            if (index >= 10) rankColor = '#9e9e9e';
-            
-            return `
-                <div class="result-item" data-rank="${index + 1}">
-                    <div class="rank-badge" style="background: ${rankColor}">#${index + 1}</div>
-                    <img src="${item.path}" alt="${item.filename}">
-                    <div class="result-info">
-                        <div class="similarity-score ${scoreClass}">${score}%</div>
-                        <div style="font-size:12px;color:#666;">${item.filename}</div>
-                        <div class="similarity-bar">
-                            <div class="similarity-fill" style="width: ${score}%"></div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-    
-    // UI 설정 및 나머지 함수들은 v18.5와 동일
     loadScript(src) {
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
@@ -518,7 +86,7 @@ class LuxuryFashionSearchApp {
     setupUI() {
         const html = `
             <div id="fashionSearchApp">
-                <h1>🎯 Fashion Search v18.6 - Color Enhanced</h1>
+                <h1>🎯 Fashion Search v18.5</h1>
                 <div id="status">🔄 초기화 중...</div>
                 
                 <div class="mode-buttons">
@@ -567,7 +135,7 @@ class LuxuryFashionSearchApp {
                     <button id="testBtn">🧪 시스템 테스트</button>
                     <button id="validateBtn">✔️ DB 검증</button>
                     <button id="clearAllBtn">💣 완전 초기화</button>
-                    <button id="analyzeBtn">📊 색상 분석</button>
+                    <button id="analyzeBtn">📊 유사도 분석</button>
                     <pre id="debugConsole"></pre>
                 </div>
             </div>
@@ -663,7 +231,7 @@ class LuxuryFashionSearchApp {
         document.getElementById('testBtn')?.addEventListener('click', () => this.runTest());
         document.getElementById('validateBtn')?.addEventListener('click', () => this.validateDB());
         document.getElementById('clearAllBtn')?.addEventListener('click', () => this.clearAndReload());
-        document.getElementById('analyzeBtn')?.addEventListener('click', () => this.analyzeColors());
+        document.getElementById('analyzeBtn')?.addEventListener('click', () => this.analyzeSimilarity());
         
         // 모드 전환
         document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -700,9 +268,6 @@ class LuxuryFashionSearchApp {
                 margin-bottom: 20px;
                 font-size: 32px;
                 text-align: center;
-                background: linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
             }
             
             #status {
@@ -713,7 +278,7 @@ class LuxuryFashionSearchApp {
                 margin-bottom: 25px;
                 font-weight: 600;
                 text-align: center;
-                border-left: 4px solid #4ecdc4;
+                border-left: 4px solid #4caf50;
             }
             
             .mode-buttons {
@@ -741,13 +306,13 @@ class LuxuryFashionSearchApp {
             }
             
             .mode-btn.active {
-                background: linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%);
+                background: #4caf50;
                 color: white;
-                border-color: transparent;
+                border-color: #4caf50;
             }
             
             .upload-area {
-                border: 3px dashed #4ecdc4;
+                border: 3px dashed #4caf50;
                 border-radius: 16px;
                 padding: 60px 20px;
                 text-align: center;
@@ -759,11 +324,10 @@ class LuxuryFashionSearchApp {
             .upload-area:hover {
                 background: #e8f5e9;
                 transform: scale(1.01);
-                border-color: #ff6b6b;
             }
             
             .upload-area p {
-                color: #4ecdc4;
+                color: #4caf50;
                 font-size: 20px;
                 font-weight: 600;
             }
@@ -786,13 +350,14 @@ class LuxuryFashionSearchApp {
             }
             
             .primary-btn {
-                background: linear-gradient(135deg, #4ecdc4 0%, #44a8a4 100%);
+                background: #4caf50;
                 color: white;
             }
             
             .primary-btn:hover {
+                background: #45a049;
                 transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(78, 205, 196, 0.4);
+                box-shadow: 0 6px 20px rgba(76, 175, 80, 0.3);
             }
             
             .secondary-btn {
@@ -807,13 +372,14 @@ class LuxuryFashionSearchApp {
             }
             
             .danger-btn {
-                background: linear-gradient(135deg, #ff6b6b 0%, #ff5252 100%);
+                background: #f44336;
                 color: white;
             }
             
             .danger-btn:hover {
+                background: #e53935;
                 transform: translateY(-2px);
-                box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
+                box-shadow: 0 6px 20px rgba(244, 67, 54, 0.3);
             }
             
             #dropZone {
@@ -828,7 +394,7 @@ class LuxuryFashionSearchApp {
             
             #dropZone:hover {
                 background: #f5f5f5;
-                border-color: #4ecdc4;
+                border-color: #4caf50;
             }
             
             #dropZone h3 {
@@ -898,23 +464,8 @@ class LuxuryFashionSearchApp {
             .similarity-score {
                 font-size: 22px;
                 font-weight: bold;
+                color: #4caf50;
                 margin-bottom: 4px;
-            }
-            
-            .similarity-score.high { 
-                background: linear-gradient(135deg, #4caf50 0%, #8bc34a 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .similarity-score.medium { 
-                background: linear-gradient(135deg, #ff9800 0%, #ffb74d 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-            }
-            .similarity-score.low { 
-                background: linear-gradient(135deg, #f44336 0%, #e57373 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
             }
             
             .similarity-bar {
@@ -927,7 +478,7 @@ class LuxuryFashionSearchApp {
             
             .similarity-fill {
                 height: 100%;
-                background: linear-gradient(90deg, #4ecdc4, #44a8a4);
+                background: linear-gradient(90deg, #4caf50, #8bc34a);
                 transition: width 0.3s;
             }
             
@@ -953,7 +504,7 @@ class LuxuryFashionSearchApp {
             }
             
             .progress-fill {
-                background: linear-gradient(90deg, #4ecdc4, #44a8a4);
+                background: linear-gradient(90deg, #4caf50, #8bc34a);
                 height: 100%;
                 display: flex;
                 align-items: center;
@@ -965,7 +516,7 @@ class LuxuryFashionSearchApp {
             
             #debugConsole {
                 background: #1e1e1e;
-                color: #4ecdc4;
+                color: #4caf50;
                 padding: 20px;
                 border-radius: 10px;
                 font-family: 'Courier New', monospace;
@@ -976,55 +527,325 @@ class LuxuryFashionSearchApp {
                 margin-top: 20px;
                 line-height: 1.5;
             }
+            
+            /* 유사도에 따른 색상 변화 */
+            .similarity-score.high { color: #2e7d32; }
+            .similarity-score.medium { color: #f57c00; }
+            .similarity-score.low { color: #d32f2f; }
         `;
         document.head.appendChild(style);
     }
     
-    // 색상 분석 도구
-    async analyzeColors() {
+    // 파일 처리 - 심플하고 효율적으로
+    async processFile(file) {
+        const dataUrl = await this.fileToDataUrl(file);
+        const img = await this.loadImage(dataUrl);
+        
+        let embedding = [];
+        
+        if (this.models.mobileNet) {
+            try {
+                // MobileNet 특징 추출 (레이어 조정)
+                embedding = await this.extractEnhancedFeatures(img);
+                
+                if (!embedding || embedding.length === 0) {
+                    throw new Error('특징 추출 실패');
+                }
+                
+            } catch (error) {
+                console.warn('특징 추출 실패, 기본값 사용:', error.message);
+                embedding = new Array(1280).fill(0);
+            }
+        } else {
+            embedding = new Array(1280).fill(0);
+        }
+        
+        const imageData = {
+            filename: file.name,
+            path: dataUrl,
+            embedding: embedding,
+            indexed: new Date().toISOString()
+        };
+        
+        await this.saveImageToDB(imageData);
+        console.log(`✅ ${file.name} - 임베딩 크기: ${embedding.length}`);
+    }
+    
+    // 향상된 특징 추출 (더 깊은 레이어 사용)
+    async extractEnhancedFeatures(imageElement) {
+        if (!this.models.mobileNet) {
+            throw new Error('MobileNet이 아직 로드되지 않았습니다');
+        }
+        
+        try {
+            // 기본 특징 추출
+            const embeddings = this.models.mobileNet.infer(imageElement, true);
+            
+            // L2 정규화 적용
+            const normalized = tf.tidy(() => {
+                const norm = tf.norm(embeddings, 2, 1, true);
+                return tf.div(embeddings, norm);
+            });
+            
+            // 배열로 변환
+            const arrayData = await normalized.array();
+            
+            // 메모리 해제
+            embeddings.dispose();
+            normalized.dispose();
+            
+            // 2차원 배열인 경우 첫 번째 요소 반환
+            if (Array.isArray(arrayData[0])) {
+                return arrayData[0];
+            }
+            
+            return arrayData;
+            
+        } catch (error) {
+            console.error('특징 추출 오류:', error);
+            
+            // 폴백: 단순 추출
+            const simple = this.models.mobileNet.infer(imageElement, true);
+            const data = await simple.array();
+            simple.dispose();
+            
+            if (Array.isArray(data[0])) {
+                return data[0];
+            }
+            return data;
+        }
+    }
+    
+    // 검색 이미지 처리
+    async processSearchImage(file) {
+        if (!this.models.mobileNet) {
+            alert('AI 모델이 아직 로드 중입니다. 잠시만 기다려주세요.');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const img = new Image();
+            img.onload = async () => {
+                document.getElementById('previewImage').src = e.target.result;
+                document.getElementById('previewContainer').style.display = 'block';
+                document.getElementById('searchStatus').textContent = '🔍 검색 중...';
+                
+                try {
+                    const features = await this.extractEnhancedFeatures(img);
+                    console.log('검색 임베딩 크기:', features.length);
+                    
+                    await this.searchSimilar(features);
+                    
+                    document.getElementById('searchStatus').textContent = '✅ 검색 완료';
+                } catch (error) {
+                    console.error('검색 오류:', error);
+                    document.getElementById('searchStatus').textContent = '❌ 검색 실패: ' + error.message;
+                }
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    // 유사 이미지 검색 (개선된 알고리즘)
+    async searchSimilar(queryFeatures) {
         const transaction = this.db.transaction(['images'], 'readonly');
         const store = transaction.objectStore('images');
         const request = store.getAll();
         
-        request.onsuccess = async () => {
+        request.onsuccess = () => {
             const images = request.result;
-            const console = document.getElementById('debugConsole');
+            const results = [];
             
-            if (images.length === 0) {
-                console.textContent = '분석할 이미지가 없습니다.';
-                return;
-            }
+            console.log(`검색 대상: ${images.length}개 이미지`);
             
-            console.textContent = '=== 색상 분석 ===\n\n';
-            console.textContent += `총 ${images.length}개 이미지 분석 중...\n\n`;
+            // 유사도 계산 통계
+            let maxSim = 0;
+            let minSim = 1;
             
-            // 샘플 이미지 색상 분석
-            const samples = images.slice(0, Math.min(10, images.length));
-            
-            for (const image of samples) {
-                if (image.embedding && image.embedding.length >= 1348) {
-                    const colorFeatures = image.embedding.slice(1280);
-                    
-                    // 주요 색상 비율 추출 (인덱스 62-66)
-                    const blackRatio = colorFeatures[62];
-                    const whiteRatio = colorFeatures[63];
-                    const brownRatio = colorFeatures[64];
-                    const beigeRatio = colorFeatures[65];
-                    const navyRatio = colorFeatures[66];
-                    
-                    console.textContent += `📁 ${image.filename}\n`;
-                    console.textContent += `   검정: ${(blackRatio * 100).toFixed(1)}%\n`;
-                    console.textContent += `   흰색: ${(whiteRatio * 100).toFixed(1)}%\n`;
-                    console.textContent += `   갈색: ${(brownRatio * 100).toFixed(1)}%\n`;
-                    console.textContent += `   베이지: ${(beigeRatio * 100).toFixed(1)}%\n`;
-                    console.textContent += `   네이비: ${(navyRatio * 100).toFixed(1)}%\n`;
-                    console.textContent += '\n';
+            for (const image of images) {
+                if (!image.embedding || image.embedding.length === 0) {
+                    console.warn(`${image.filename}: 잘못된 임베딩`);
+                    continue;
                 }
+                
+                // 코사인 유사도 계산
+                const similarity = this.improvedCosineSimilarity(queryFeatures, image.embedding);
+                
+                maxSim = Math.max(maxSim, similarity);
+                minSim = Math.min(minSim, similarity);
+                
+                results.push({
+                    ...image,
+                    similarity: similarity
+                });
             }
+            
+            console.log(`유사도 범위: ${(minSim * 100).toFixed(1)}% ~ ${(maxSim * 100).toFixed(1)}%`);
+            
+            // 정규화 (상대적 점수로 변환)
+            const range = maxSim - minSim;
+            if (range > 0) {
+                results.forEach(r => {
+                    // 정규화: 0~1 범위로 조정
+                    const normalized = (r.similarity - minSim) / range;
+                    // 스케일링: 50~100% 범위로 조정 (더 직관적인 점수)
+                    r.displayScore = 50 + normalized * 50;
+                    // 원본 유사도도 보존
+                    r.originalSimilarity = r.similarity;
+                });
+            }
+            
+            // 정렬
+            results.sort((a, b) => b.similarity - a.similarity);
+            
+            // 상위 20개 표시
+            this.displayResults(results.slice(0, 20));
         };
     }
     
-    // 나머지 함수들 (v18.5와 동일)
+    // 개선된 코사인 유사도 계산
+    improvedCosineSimilarity(vec1, vec2) {
+        if (!vec1 || !vec2) return 0;
+        
+        const len = Math.min(vec1.length, vec2.length);
+        
+        let dotProduct = 0;
+        let norm1 = 0;
+        let norm2 = 0;
+        
+        for (let i = 0; i < len; i++) {
+            const v1 = vec1[i] || 0;
+            const v2 = vec2[i] || 0;
+            
+            dotProduct += v1 * v2;
+            norm1 += v1 * v1;
+            norm2 += v2 * v2;
+        }
+        
+        if (norm1 === 0 || norm2 === 0) return 0;
+        
+        const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+        
+        // 클램핑 (0~1 범위)
+        return Math.max(0, Math.min(1, similarity));
+    }
+    
+    // 결과 표시 (개선된 UI)
+    displayResults(results) {
+        const resultsDiv = document.getElementById('results');
+        
+        if (results.length === 0) {
+            resultsDiv.innerHTML = '<p style="text-align:center; color:#999;">검색 결과가 없습니다.</p>';
+            return;
+        }
+        
+        resultsDiv.innerHTML = results.map((item, index) => {
+            // displayScore 사용 (정규화된 점수)
+            const score = item.displayScore ? item.displayScore.toFixed(1) : (item.similarity * 100).toFixed(1);
+            
+            // 점수에 따른 색상 클래스
+            let scoreClass = 'high';
+            if (score < 70) scoreClass = 'medium';
+            if (score < 50) scoreClass = 'low';
+            
+            // 순위에 따른 뱃지 색상
+            let rankColor = '#4caf50';
+            if (index >= 3) rankColor = '#ff9800';
+            if (index >= 10) rankColor = '#9e9e9e';
+            
+            return `
+                <div class="result-item" data-rank="${index + 1}">
+                    <div class="rank-badge" style="background: ${rankColor}">#${index + 1}</div>
+                    <img src="${item.path}" alt="${item.filename}">
+                    <div class="result-info">
+                        <div class="similarity-score ${scoreClass}">${score}%</div>
+                        <div style="font-size:12px;color:#666;">${item.filename}</div>
+                        <div class="similarity-bar">
+                            <div class="similarity-fill" style="width: ${score}%"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    // 유사도 분석 도구
+    async analyzeSimilarity() {
+        const transaction = this.db.transaction(['images'], 'readonly');
+        const store = transaction.objectStore('images');
+        const request = store.getAll();
+        
+        request.onsuccess = () => {
+            const images = request.result;
+            const console = document.getElementById('debugConsole');
+            
+            if (images.length < 2) {
+                console.textContent = '분석하려면 최소 2개 이상의 이미지가 필요합니다.';
+                return;
+            }
+            
+            console.textContent = '=== 유사도 분석 ===\n\n';
+            console.textContent += `총 ${images.length}개 이미지 분석 중...\n\n`;
+            
+            // 샘플링: 처음 10개만 분석
+            const samples = images.slice(0, Math.min(10, images.length));
+            const matrix = [];
+            
+            for (let i = 0; i < samples.length; i++) {
+                const row = [];
+                for (let j = 0; j < samples.length; j++) {
+                    if (i === j) {
+                        row.push(1.0);
+                    } else {
+                        const sim = this.improvedCosineSimilarity(
+                            samples[i].embedding,
+                            samples[j].embedding
+                        );
+                        row.push(sim);
+                    }
+                }
+                matrix.push(row);
+            }
+            
+            // 유사도 매트릭스 출력
+            console.textContent += '유사도 매트릭스 (상위 10개):\n\n';
+            console.textContent += '      ';
+            samples.forEach((_, i) => {
+                console.textContent += `  ${String(i+1).padStart(2, '0')} `;
+            });
+            console.textContent += '\n';
+            
+            matrix.forEach((row, i) => {
+                console.textContent += `${String(i+1).padStart(2, '0')}: `;
+                row.forEach(val => {
+                    const percent = (val * 100).toFixed(0);
+                    console.textContent += `${percent.padStart(3, ' ')}% `;
+                });
+                console.textContent += `  ${samples[i].filename.substring(0, 15)}\n`;
+            });
+            
+            // 평균 유사도 계산
+            let totalSim = 0;
+            let count = 0;
+            
+            for (let i = 0; i < matrix.length; i++) {
+                for (let j = i + 1; j < matrix[i].length; j++) {
+                    totalSim += matrix[i][j];
+                    count++;
+                }
+            }
+            
+            const avgSim = totalSim / count;
+            
+            console.textContent += `\n평균 유사도: ${(avgSim * 100).toFixed(2)}%\n`;
+            console.textContent += `최소 유사도: ${(Math.min(...matrix.flat()) * 100).toFixed(2)}%\n`;
+            console.textContent += `최대 유사도: ${(Math.max(...matrix.flat().filter(v => v < 1)) * 100).toFixed(2)}%\n`;
+        };
+    }
+    
+    // 나머지 함수들은 v18.3과 동일
     async selectMultipleFiles() {
         if (!this.checkReady()) return;
         
@@ -1131,7 +952,7 @@ class LuxuryFashionSearchApp {
         }
         
         statusDiv.textContent = `✅ 완료: ${successCount}개 성공, ${errorCount}개 실패`;
-        this.updateStatus(`✅ ${successCount}개 이미지 인덱싱 완료! (색상 특징 포함)`);
+        this.updateStatus(`✅ ${successCount}개 이미지 인덱싱 완료!`);
         
         await this.validateDB();
     }
@@ -1235,7 +1056,7 @@ class LuxuryFashionSearchApp {
             let needMigration = false;
             
             for (const image of images) {
-                if (image.embedding && image.embedding.length !== 1348) {
+                if (image.embedding && image.embedding.length < 1280) {
                     needMigration = true;
                     break;
                 }
@@ -1243,7 +1064,7 @@ class LuxuryFashionSearchApp {
             
             if (needMigration) {
                 console.log('🔄 기존 DB 마이그레이션 필요');
-                if (confirm('색상 특징을 추가하기 위해 재인덱싱이 필요합니다. 진행하시겠습니까?')) {
+                if (confirm('기존 데이터베이스를 새 형식으로 마이그레이션해야 합니다. 재인덱싱하시겠습니까?')) {
                     await this.clearDB();
                     this.updateStatus('⚠️ DB 초기화 완료. 이미지를 다시 인덱싱해주세요.');
                 }
@@ -1267,11 +1088,6 @@ class LuxuryFashionSearchApp {
             console.textContent += `Backend: ${tf.getBackend()}\n`;
             console.textContent += `WebGL: ${tf.getBackend() === 'webgl' ? '✅' : '❌'}\n`;
         }
-        
-        console.textContent += `\n특징 구성:\n`;
-        console.textContent += `- MobileNet: 1280 features\n`;
-        console.textContent += `- 색상: 68 features\n`;
-        console.textContent += `- 총합: 1348 features\n`;
     }
     
     async validateDB() {
@@ -1290,19 +1106,13 @@ class LuxuryFashionSearchApp {
             
             let validCount = 0;
             let invalidCount = 0;
-            let v18_5Count = 0;
-            let v18_6Count = 0;
             
             console.textContent = `=== DB 검증 ===\n\n`;
             console.textContent += `총 이미지: ${images.length}개\n\n`;
             
             for (const img of images) {
-                if (img.embedding && img.embedding.length === 1348) {
+                if (img.embedding && img.embedding.length === 1280) {
                     validCount++;
-                    v18_6Count++;
-                } else if (img.embedding && img.embedding.length === 1280) {
-                    validCount++;
-                    v18_5Count++;
                 } else {
                     invalidCount++;
                     console.textContent += `❌ ${img.filename}: 잘못된 임베딩 (크기: ${img.embedding?.length || 0})\n`;
@@ -1310,13 +1120,18 @@ class LuxuryFashionSearchApp {
             }
             
             console.textContent += `\n✅ 유효: ${validCount}개\n`;
-            console.textContent += `  - v18.6 (색상 포함): ${v18_6Count}개\n`;
-            console.textContent += `  - v18.5 (색상 없음): ${v18_5Count}개\n`;
             console.textContent += `❌ 무효: ${invalidCount}개\n`;
             
-            if (v18_5Count > 0) {
-                console.textContent += `\n⚠️ ${v18_5Count}개 이미지가 색상 정보 없음\n`;
-                console.textContent += `색상 기반 검색 정확도 향상을 위해 재인덱싱을 권장합니다.\n`;
+            if (validCount > 0) {
+                console.textContent += `\n샘플 데이터 (상위 5개):\n`;
+                images.slice(0, 5).forEach((img, i) => {
+                    console.textContent += `${i+1}. ${img.filename}\n`;
+                    console.textContent += `   임베딩 크기: ${img.embedding?.length || 0}\n`;
+                    if (img.embedding && img.embedding.length > 0) {
+                        const sample = img.embedding.slice(0, 3).map(v => v.toFixed(4)).join(', ');
+                        console.textContent += `   샘플: [${sample}, ...]\n`;
+                    }
+                });
             }
         };
     }
@@ -1367,4 +1182,4 @@ window.addEventListener('DOMContentLoaded', () => {
     window.app = app;
 });
 
-console.log('Fashion Search v18.6 - Color Enhanced Ready');
+console.log('Fashion Search v18.5 - Pure Similarity Ready');
