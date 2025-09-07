@@ -1,0 +1,44 @@
+name: Test and Lint
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Check file structure
+        run: |
+          echo "📁 Checking required files..."
+          test -f package.json && echo "✅ package.json found"
+          test -f src/main.js && echo "✅ main.js found"
+          test -f index.html && echo "✅ index.html found"
+          test -d src-tauri && echo "✅ src-tauri directory found"
+          
+      - name: Build frontend
+        run: npm run build
+        
+      - name: Check build output
+        run: |
+          test -d dist && echo "✅ Build successful - dist folder created"
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: dist/

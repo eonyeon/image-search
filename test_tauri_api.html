@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tauri API 테스트 - v21.2</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: #f8f9ff;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .test-btn {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        .test-btn:hover {
+            opacity: 0.9;
+        }
+        .result {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 10px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .api-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .api-item {
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .api-available {
+            background: #d4edda;
+            color: #155724;
+        }
+        .api-unavailable {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Tauri API 테스트 - v21.2</h1>
+        
+        <!-- 환경 확인 -->
+        <div class="test-section">
+            <h2>📊 환경 확인</h2>
+            <button class="test-btn" onclick="checkEnvironment()">환경 체크</button>
+            <div id="envResult" class="result"></div>
+        </div>
+        
+        <!-- API 상태 -->
+        <div class="test-section">
+            <h2>🔌 API 상태</h2>
+            <button class="test-btn" onclick="checkAPIStatus()">API 상태 확인</button>
+            <div id="apiGrid" class="api-grid"></div>
+            <div id="apiResult" class="result"></div>
+        </div>
+        
+        <!-- Dialog 테스트 -->
+        <div class="test-section">
+            <h2>📂 Dialog API 테스트</h2>
+            <button class="test-btn" onclick="testFileDialog()">파일 선택</button>
+            <button class="test-btn" onclick="testFolderDialog()">폴더 선택</button>
+            <button class="test-btn" onclick="testSaveDialog()">저장 다이얼로그</button>
+            <div id="dialogResult" class="result"></div>
+        </div>
+        
+        <!-- FS 테스트 -->
+        <div class="test-section">
+            <h2>📁 File System API 테스트</h2>
+            <button class="test-btn" onclick="testReadDir()">디렉토리 읽기</button>
+            <button class="test-btn" onclick="testReadFile()">파일 읽기</button>
+            <div id="fsResult" class="result"></div>
+        </div>
+        
+        <!-- 통합 테스트 -->
+        <div class="test-section">
+            <h2>🚀 통합 테스트</h2>
+            <button class="test-btn" onclick="runFullTest()">전체 테스트 실행</button>
+            <div id="fullResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        // 환경 확인
+        function checkEnvironment() {
+            const result = document.getElementById('envResult');
+            let report = '=== 환경 정보 ===\n\n';
+            
+            // 브라우저 정보
+            report += '📱 브라우저:\n';
+            report += `User Agent: ${navigator.userAgent}\n`;
+            report += `Platform: ${navigator.platform}\n\n`;
+            
+            // Tauri 확인
+            report += '🚀 Tauri 상태:\n';
+            if (window.__TAURI__) {
+                report += '✅ window.__TAURI__ 객체 존재\n';
+                report += `Type: ${typeof window.__TAURI__}\n`;
+                report += `Keys: ${Object.keys(window.__TAURI__).join(', ')}\n`;
+            } else {
+                report += '❌ window.__TAURI__ 객체 없음\n';
+                report += '웹 브라우저에서 실행 중입니다.\n';
+            }
+            
+            // 시간 정보
+            report += '\n⏰ 테스트 시간:\n';
+            report += new Date().toLocaleString();
+            
+            result.textContent = report;
+        }
+        
+        // API 상태 확인
+        function checkAPIStatus() {
+            const grid = document.getElementById('apiGrid');
+            const result = document.getElementById('apiResult');
+            
+            if (!window.__TAURI__) {
+                grid.innerHTML = '<div class="status error">❌ Tauri API를 사용할 수 없습니다.</div>';
+                result.textContent = '웹 브라우저에서는 Tauri API를 사용할 수 없습니다.\nTauri 앱에서 실행해주세요.';
+                return;
+            }
+            
+            const apis = [
+                { name: 'dialog', obj: window.__TAURI__.dialog },
+                { name: 'fs', obj: window.__TAURI__.fs },
+                { name: 'path', obj: window.__TAURI__.path },
+                { name: 'shell', obj: window.__TAURI__.shell },
+                { name: 'invoke', obj: window.__TAURI__.invoke },
+                { name: 'event', obj: window.__TAURI__.event },
+                { name: 'window', obj: window.__TAURI__.window },
+                { name: 'os', obj: window.__TAURI__.os }
+            ];
+            
+            let gridHTML = '';
+            let report = '=== API 상세 정보 ===\n\n';
+            
+            apis.forEach(api => {
+                const available = api.obj !== undefined;
+                gridHTML += `<div class="api-item ${available ? 'api-available' : 'api-unavailable'}">
+                    ${available ? '✅' : '❌'} ${api.name}
+                </div>`;
+                
+                if (available) {
+                    report += `✅ ${api.name} API\n`;
+                    if (typeof api.obj === 'object' && api.obj !== null) {
+                        const methods = Object.keys(api.obj).filter(key => typeof api.obj[key] === 'function');
+                        if (methods.length > 0) {
+                            report += `   메소드: ${methods.slice(0, 5).join(', ')}${methods.length > 5 ? '...' : ''}\n`;
+                        }
+                    }
+                } else {
+                    report += `❌ ${api.name} API - 사용 불가\n`;
+                }
+            });
+            
+            grid.innerHTML = gridHTML;
+            result.textContent = report;
+        }
+        
+        // Dialog 테스트
+        async function testFileDialog() {
+            const result = document.getElementById('dialogResult');
+            
+            if (!window.__TAURI__) {
+                result.textContent = '❌ Tauri 환경이 아닙니다.';
+                return;
+            }
+            
+            try {
+                result.textContent = '파일 선택 다이얼로그 열기...';
+                
+                let selected = null;
+                if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    selected = await window.__TAURI__.dialog.open({
+                        multiple: false,
+                        filters: [{
+                            name: 'Images',
+                            extensions: ['png', 'jpg', 'jpeg', 'webp']
+                        }]
+                    });
+                } else {
+                    throw new Error('Dialog API를 사용할 수 없습니다.');
+                }
+                
+                if (selected) {
+                    result.textContent = `✅ 선택된 파일:\n${selected}`;
+                } else {
+                    result.textContent = '❌ 파일 선택 취소됨';
+                }
+            } catch (error) {
+                result.textContent = `❌ 오류: ${error.message}`;
+            }
+        }
+        
+        async function testFolderDialog() {
+            const result = document.getElementById('dialogResult');
+            
+            if (!window.__TAURI__) {
+                result.textContent = '❌ Tauri 환경이 아닙니다.';
+                return;
+            }
+            
+            try {
+                result.textContent = '폴더 선택 다이얼로그 열기...';
+                
+                let selected = null;
+                if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    selected = await window.__TAURI__.dialog.open({
+                        directory: true,
+                        multiple: false,
+                        title: '폴더 선택 테스트'
+                    });
+                } else {
+                    throw new Error('Dialog API를 사용할 수 없습니다.');
+                }
+                
+                if (selected) {
+                    result.textContent = `✅ 선택된 폴더:\n${selected}`;
+                } else {
+                    result.textContent = '❌ 폴더 선택 취소됨';
+                }
+            } catch (error) {
+                result.textContent = `❌ 오류: ${error.message}`;
+            }
+        }
+        
+        async function testSaveDialog() {
+            const result = document.getElementById('dialogResult');
+            
+            if (!window.__TAURI__) {
+                result.textContent = '❌ Tauri 환경이 아닙니다.';
+                return;
+            }
+            
+            try {
+                result.textContent = '저장 다이얼로그 열기...';
+                
+                let selected = null;
+                if (window.__TAURI__.dialog && window.__TAURI__.dialog.save) {
+                    selected = await window.__TAURI__.dialog.save({
+                        filters: [{
+                            name: 'JSON',
+                            extensions: ['json']
+                        }]
+                    });
+                } else {
+                    throw new Error('Save Dialog API를 사용할 수 없습니다.');
+                }
+                
+                if (selected) {
+                    result.textContent = `✅ 저장 경로:\n${selected}`;
+                } else {
+                    result.textContent = '❌ 저장 취소됨';
+                }
+            } catch (error) {
+                result.textContent = `❌ 오류: ${error.message}`;
+            }
+        }
+        
+        // FS 테스트
+        async function testReadDir() {
+            const result = document.getElementById('fsResult');
+            
+            if (!window.__TAURI__) {
+                result.textContent = '❌ Tauri 환경이 아닙니다.';
+                return;
+            }
+            
+            try {
+                // 먼저 폴더 선택
+                let folderPath = null;
+                if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    folderPath = await window.__TAURI__.dialog.open({
+                        directory: true,
+                        title: '읽을 폴더 선택'
+                    });
+                }
+                
+                if (!folderPath) {
+                    result.textContent = '❌ 폴더가 선택되지 않았습니다.';
+                    return;
+                }
+                
+                // 디렉토리 읽기
+                if (window.__TAURI__.fs && window.__TAURI__.fs.readDir) {
+                    const entries = await window.__TAURI__.fs.readDir(folderPath);
+                    
+                    let report = `✅ 폴더 내용 (${entries.length}개 항목):\n\n`;
+                    entries.slice(0, 10).forEach(entry => {
+                        const type = entry.children ? '📁' : '📄';
+                        report += `${type} ${entry.name || entry.path}\n`;
+                    });
+                    
+                    if (entries.length > 10) {
+                        report += `... 외 ${entries.length - 10}개 항목`;
+                    }
+                    
+                    result.textContent = report;
+                } else {
+                    throw new Error('FS API를 사용할 수 없습니다.');
+                }
+            } catch (error) {
+                result.textContent = `❌ 오류: ${error.message}`;
+            }
+        }
+        
+        async function testReadFile() {
+            const result = document.getElementById('fsResult');
+            
+            if (!window.__TAURI__) {
+                result.textContent = '❌ Tauri 환경이 아닙니다.';
+                return;
+            }
+            
+            try {
+                // 파일 선택
+                let filePath = null;
+                if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    filePath = await window.__TAURI__.dialog.open({
+                        multiple: false,
+                        filters: [{
+                            name: 'Text Files',
+                            extensions: ['txt', 'md', 'json']
+                        }]
+                    });
+                }
+                
+                if (!filePath) {
+                    result.textContent = '❌ 파일이 선택되지 않았습니다.';
+                    return;
+                }
+                
+                // 파일 읽기
+                if (window.__TAURI__.fs && window.__TAURI__.fs.readTextFile) {
+                    const content = await window.__TAURI__.fs.readTextFile(filePath);
+                    
+                    result.textContent = `✅ 파일 내용:\n\n${content.slice(0, 500)}${content.length > 500 ? '...' : ''}`;
+                } else {
+                    throw new Error('readTextFile API를 사용할 수 없습니다.');
+                }
+            } catch (error) {
+                result.textContent = `❌ 오류: ${error.message}`;
+            }
+        }
+        
+        // 전체 테스트
+        async function runFullTest() {
+            const result = document.getElementById('fullResult');
+            let report = '=== 전체 테스트 시작 ===\n\n';
+            
+            // 1. 환경 체크
+            report += '1️⃣ 환경 체크\n';
+            if (window.__TAURI__) {
+                report += '✅ Tauri 환경 확인\n\n';
+            } else {
+                report += '❌ Tauri 환경이 아님\n';
+                report += '테스트를 중단합니다.\n';
+                result.textContent = report;
+                return;
+            }
+            
+            // 2. API 체크
+            report += '2️⃣ API 체크\n';
+            const apis = ['dialog', 'fs', 'path', 'invoke'];
+            let allApisAvailable = true;
+            
+            apis.forEach(api => {
+                if (window.__TAURI__[api]) {
+                    report += `✅ ${api} API 사용 가능\n`;
+                } else {
+                    report += `❌ ${api} API 없음\n`;
+                    allApisAvailable = false;
+                }
+            });
+            
+            report += '\n';
+            
+            // 3. Dialog 테스트
+            if (window.__TAURI__.dialog) {
+                report += '3️⃣ Dialog 테스트\n';
+                
+                try {
+                    // 메소드 확인
+                    if (window.__TAURI__.dialog.open) {
+                        report += '✅ open() 메소드 존재\n';
+                    }
+                    if (window.__TAURI__.dialog.save) {
+                        report += '✅ save() 메소드 존재\n';
+                    }
+                    if (window.__TAURI__.dialog.message) {
+                        report += '✅ message() 메소드 존재\n';
+                    }
+                } catch (e) {
+                    report += `❌ Dialog 테스트 실패: ${e.message}\n`;
+                }
+                
+                report += '\n';
+            }
+            
+            // 4. FS 테스트
+            if (window.__TAURI__.fs) {
+                report += '4️⃣ FS 테스트\n';
+                
+                try {
+                    // 메소드 확인
+                    if (window.__TAURI__.fs.readDir) {
+                        report += '✅ readDir() 메소드 존재\n';
+                    }
+                    if (window.__TAURI__.fs.readBinaryFile) {
+                        report += '✅ readBinaryFile() 메소드 존재\n';
+                    }
+                    if (window.__TAURI__.fs.readTextFile) {
+                        report += '✅ readTextFile() 메소드 존재\n';
+                    }
+                } catch (e) {
+                    report += `❌ FS 테스트 실패: ${e.message}\n`;
+                }
+                
+                report += '\n';
+            }
+            
+            // 5. 결과 요약
+            report += '5️⃣ 테스트 결과\n';
+            if (allApisAvailable) {
+                report += '✅ 모든 필수 API 사용 가능\n';
+                report += '✅ 폴더 선택 기능 사용 가능\n';
+                report += '✅ 파일 인덱싱 준비 완료\n';
+            } else {
+                report += '⚠️ 일부 API가 누락되었습니다.\n';
+                report += '제한된 기능만 사용 가능합니다.\n';
+            }
+            
+            report += '\n=== 테스트 완료 ===';
+            result.textContent = report;
+        }
+        
+        // 페이지 로드 시 자동 체크
+        window.addEventListener('DOMContentLoaded', () => {
+            checkEnvironment();
+        });
+    </script>
+</body>
+</html>

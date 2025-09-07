@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fashion Search v21 - 테스트</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9ff;
+            border-radius: 10px;
+        }
+        .test-btn {
+            padding: 10px 20px;
+            margin: 5px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .test-btn:hover {
+            opacity: 0.9;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #333;
+            color: #0f0;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.warning { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Fashion Search v21 테스트</h1>
+        
+        <div class="test-section">
+            <h3>1. 환경 확인</h3>
+            <button class="test-btn" onclick="checkEnvironment()">환경 체크</button>
+            <button class="test-btn" onclick="checkTauri()">Tauri API 확인</button>
+            <button class="test-btn" onclick="checkTensorFlow()">TensorFlow.js 확인</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>2. 앱 상태</h3>
+            <button class="test-btn" onclick="checkApp()">앱 인스턴스 확인</button>
+            <button class="test-btn" onclick="checkModels()">모델 상태</button>
+            <button class="test-btn" onclick="checkDB()">DB 상태</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>3. 기능 테스트</h3>
+            <button class="test-btn" onclick="testFeatureExtraction()">특징 추출 테스트</button>
+            <button class="test-btn" onclick="testSimilarity()">유사도 계산 테스트</button>
+            <button class="test-btn" onclick="testTauriDialog()">Tauri Dialog 테스트</button>
+        </div>
+        
+        <div id="statusArea"></div>
+        <div id="output">테스트 결과가 여기에 표시됩니다...</div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const symbol = type === 'error' ? '❌' : type === 'success' ? '✅' : '📝';
+            output.innerHTML += `[${timestamp}] ${symbol} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function setStatus(message, type = 'success') {
+            const statusArea = document.getElementById('statusArea');
+            const status = document.createElement('div');
+            status.className = `status ${type}`;
+            status.textContent = message;
+            statusArea.appendChild(status);
+            setTimeout(() => status.remove(), 5000);
+        }
+        
+        function checkEnvironment() {
+            log('=== 환경 확인 시작 ===');
+            
+            // 브라우저 정보
+            log(`브라우저: ${navigator.userAgent}`);
+            log(`플랫폼: ${navigator.platform}`);
+            
+            // 로컬 스토리지
+            try {
+                localStorage.setItem('test', 'v21');
+                log('LocalStorage: ✓ 사용 가능', 'success');
+                localStorage.removeItem('test');
+            } catch (e) {
+                log('LocalStorage: ✗ 사용 불가', 'error');
+            }
+            
+            // IndexedDB
+            if (window.indexedDB) {
+                log('IndexedDB: ✓ 지원', 'success');
+            } else {
+                log('IndexedDB: ✗ 미지원', 'error');
+            }
+            
+            // WebGL
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (gl) {
+                log('WebGL: ✓ 지원', 'success');
+            } else {
+                log('WebGL: ✗ 미지원', 'error');
+            }
+            
+            setStatus('환경 확인 완료', 'success');
+        }
+        
+        function checkTauri() {
+            log('=== Tauri API 확인 ===');
+            
+            if (window.__TAURI__) {
+                log('Tauri API: ✓ 사용 가능', 'success');
+                
+                // 사용 가능한 API 확인
+                const apis = ['dialog', 'fs', 'path', 'os'];
+                apis.forEach(api => {
+                    if (window.__TAURI__[api]) {
+                        log(`  - ${api}: ✓`, 'success');
+                    } else {
+                        log(`  - ${api}: ✗`, 'error');
+                    }
+                });
+                
+                setStatus('Tauri API 사용 가능', 'success');
+            } else {
+                log('Tauri API: ✗ 웹 모드로 실행 중', 'warning');
+                setStatus('Tauri API 없음 - 웹 모드', 'warning');
+            }
+        }
+        
+        async function checkTensorFlow() {
+            log('=== TensorFlow.js 확인 ===');
+            
+            if (typeof tf !== 'undefined') {
+                log('TensorFlow.js: ✓ 로드됨', 'success');
+                log(`버전: ${tf.version.tfjs}`);
+                log(`백엔드: ${tf.getBackend()}`);
+                
+                // 간단한 텐서 테스트
+                const tensor = tf.tensor([1, 2, 3, 4]);
+                const shape = tensor.shape;
+                log(`텐서 생성 테스트: shape=${shape}`, 'success');
+                tensor.dispose();
+                
+                setStatus('TensorFlow.js 정상', 'success');
+            } else {
+                log('TensorFlow.js: ✗ 로드되지 않음', 'error');
+                log('main.js에서 TensorFlow를 로드하는지 확인하세요');
+                setStatus('TensorFlow.js 없음', 'error');
+            }
+        }
+        
+        function checkApp() {
+            log('=== 앱 인스턴스 확인 ===');
+            
+            if (window.app) {
+                log('앱 인스턴스: ✓ 존재', 'success');
+                log(`버전: ${app.version}`);
+                log(`DB 이름: ${app.dbName}`);
+                log(`현재 모드: ${app.currentMode}`);
+                log(`Tauri 지원: ${app.hasTauri ? '✓' : '✗'}`);
+                
+                setStatus('앱 인스턴스 정상', 'success');
+            } else {
+                log('앱 인스턴스: ✗ 없음', 'error');
+                log('페이지를 새로고침하거나 main.js를 확인하세요');
+                setStatus('앱 인스턴스 없음', 'error');
+            }
+        }
+        
+        function checkModels() {
+            log('=== 모델 상태 확인 ===');
+            
+            if (window.app && app.models) {
+                log(`모델 준비: ${app.models.isReady ? '✓' : '✗'}`);
+                log(`활성 모델: ${app.models.activeModel}`);
+                
+                if (app.models.mobileNet) {
+                    log('MobileNet: ✓ 로드됨', 'success');
+                } else {
+                    log('MobileNet: ✗ 로드 안됨', 'error');
+                }
+                
+                if (app.models.efficientNet) {
+                    log('EfficientNet (시뮬레이션): ✓ 준비됨', 'success');
+                } else {
+                    log('EfficientNet: ✗ 준비 안됨', 'error');
+                }
+                
+                setStatus('모델 상태 확인 완료', app.models.isReady ? 'success' : 'warning');
+            } else {
+                log('모델 확인 불가: 앱이 초기화되지 않음', 'error');
+                setStatus('모델 확인 불가', 'error');
+            }
+        }
+        
+        async function checkDB() {
+            log('=== DB 상태 확인 ===');
+            
+            if (window.app && app.db) {
+                log('DB 연결: ✓', 'success');
+                
+                // 이미지 카운트 확인
+                const transaction = app.db.transaction(['images'], 'readonly');
+                const store = transaction.objectStore('images');
+                const countRequest = store.count();
+                
+                countRequest.onsuccess = () => {
+                    log(`저장된 이미지: ${countRequest.result}개`);
+                    setStatus(`DB 정상 - ${countRequest.result}개 이미지`, 'success');
+                };
+            } else {
+                log('DB 연결: ✗', 'error');
+                setStatus('DB 연결 없음', 'error');
+            }
+        }
+        
+        async function testFeatureExtraction() {
+            log('=== 특징 추출 테스트 ===');
+            
+            if (!window.app || !app.models.isReady) {
+                log('테스트 불가: 모델이 준비되지 않음', 'error');
+                return;
+            }
+            
+            // 테스트 이미지 생성
+            const canvas = document.createElement('canvas');
+            canvas.width = 224;
+            canvas.height = 224;
+            const ctx = canvas.getContext('2d');
+            
+            // 그라데이션 테스트 이미지
+            const gradient = ctx.createLinearGradient(0, 0, 224, 224);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#764ba2');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 224, 224);
+            
+            const img = new Image();
+            img.src = canvas.toDataURL();
+            
+            img.onload = async () => {
+                const startTime = performance.now();
+                const features = await app.extractAdvancedFeatures(img);
+                const endTime = performance.now();
+                
+                log(`특징 추출 완료: ${features.length}차원`, 'success');
+                log(`처리 시간: ${(endTime - startTime).toFixed(2)}ms`);
+                log(`샘플 값: [${features.slice(0, 5).map(f => f.toFixed(3)).join(', ')}...]`);
+                
+                setStatus('특징 추출 테스트 성공', 'success');
+            };
+        }
+        
+        function testSimilarity() {
+            log('=== 유사도 계산 테스트 ===');
+            
+            if (!window.app) {
+                log('테스트 불가: 앱이 초기화되지 않음', 'error');
+                return;
+            }
+            
+            // 테스트 벡터 생성
+            const features1 = new Array(1301).fill(0).map(() => Math.random());
+            const features2 = new Array(1301).fill(0).map(() => Math.random());
+            const features3 = [...features1]; // 동일한 벡터
+            
+            const sim1 = app.calculateAdvancedSimilarity(features1, features2);
+            const sim2 = app.calculateAdvancedSimilarity(features1, features3);
+            
+            log(`랜덤 벡터 간 유사도: ${(sim1 * 100).toFixed(2)}%`);
+            log(`동일 벡터 간 유사도: ${(sim2 * 100).toFixed(2)}%`, 'success');
+            
+            if (Math.abs(sim2 - 1.0) < 0.01) {
+                log('유사도 계산: ✓ 정상', 'success');
+                setStatus('유사도 계산 테스트 성공', 'success');
+            } else {
+                log('유사도 계산: ✗ 오류', 'error');
+                setStatus('유사도 계산 테스트 실패', 'error');
+            }
+        }
+        
+        async function testTauriDialog() {
+            log('=== Tauri Dialog 테스트 ===');
+            
+            if (!window.__TAURI__) {
+                log('Tauri API 없음 - 웹 모드', 'warning');
+                setStatus('Tauri 테스트 불가', 'warning');
+                return;
+            }
+            
+            try {
+                const { open } = window.__TAURI__.dialog;
+                
+                log('폴더 선택 다이얼로그 열기...');
+                const selected = await open({
+                    directory: true,
+                    multiple: false,
+                    title: '테스트 폴더 선택'
+                });
+                
+                if (selected) {
+                    log(`선택된 폴더: ${selected}`, 'success');
+                    setStatus('Tauri Dialog 테스트 성공', 'success');
+                } else {
+                    log('폴더 선택 취소됨');
+                    setStatus('폴더 선택 취소', 'warning');
+                }
+            } catch (error) {
+                log(`Tauri Dialog 오류: ${error.message}`, 'error');
+                setStatus('Tauri Dialog 오류', 'error');
+            }
+        }
+        
+        // 페이지 로드 시 기본 체크
+        window.addEventListener('DOMContentLoaded', () => {
+            log('🧪 Fashion Search v21 테스트 페이지 로드됨');
+            
+            // 앱 존재 여부 빠른 체크
+            if (window.app) {
+                log(`앱 버전: ${app.version}`, 'success');
+            } else {
+                log('앱이 로드되지 않음. index.html을 먼저 실행하세요.', 'warning');
+            }
+        });
+    </script>
+</body>
+</html>

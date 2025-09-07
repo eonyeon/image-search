@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tauri API 체크</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #0f0; }
+        pre { background: #000; padding: 10px; border-radius: 5px; overflow: auto; }
+        button { padding: 10px 20px; margin: 5px; background: #333; color: #0f0; border: 1px solid #0f0; cursor: pointer; }
+        button:hover { background: #444; }
+    </style>
+</head>
+<body>
+    <h1>Tauri API 구조 확인</h1>
+    <button onclick="checkTauri()">Tauri API 체크</button>
+    <button onclick="checkModules()">모듈 체크</button>
+    <button onclick="testDialog()">Dialog 테스트</button>
+    <button onclick="testFS()">FS 테스트</button>
+    <pre id="output">결과가 여기에 표시됩니다...</pre>
+
+    <script>
+        function log(msg) {
+            const output = document.getElementById('output');
+            output.textContent += msg + '\n';
+        }
+
+        function checkTauri() {
+            output.textContent = '';
+            log('=== Tauri API 체크 ===\n');
+            
+            if (window.__TAURI__) {
+                log('window.__TAURI__ 존재 ✓');
+                log('\n사용 가능한 속성:');
+                for (let key in window.__TAURI__) {
+                    log(`  - ${key}: ${typeof window.__TAURI__[key]}`);
+                }
+                
+                log('\n전체 구조:');
+                log(JSON.stringify(Object.keys(window.__TAURI__), null, 2));
+            } else {
+                log('window.__TAURI__ 없음 ✗');
+            }
+        }
+
+        async function checkModules() {
+            output.textContent = '';
+            log('=== 모듈 체크 ===\n');
+            
+            if (!window.__TAURI__) {
+                log('Tauri API 없음');
+                return;
+            }
+            
+            // 각 모듈 확인
+            const modules = ['app', 'dialog', 'fs', 'path', 'os', 'window', 'invoke'];
+            
+            for (const mod of modules) {
+                if (window.__TAURI__[mod]) {
+                    log(`✓ ${mod} 모듈 존재`);
+                    log(`  메소드: ${Object.keys(window.__TAURI__[mod]).join(', ')}`);
+                } else {
+                    log(`✗ ${mod} 모듈 없음`);
+                }
+            }
+            
+            // invoke 사용해서 모듈 임포트 시도
+            if (window.__TAURI__.invoke) {
+                log('\n=== invoke 함수 사용 가능 ===');
+            }
+        }
+
+        async function testDialog() {
+            output.textContent = '';
+            log('=== Dialog 테스트 ===\n');
+            
+            try {
+                // 방법 1: 직접 접근
+                if (window.__TAURI__ && window.__TAURI__.dialog) {
+                    log('dialog 모듈 직접 접근 가능');
+                    const result = await window.__TAURI__.dialog.open({
+                        directory: true,
+                        title: '폴더 선택 테스트'
+                    });
+                    log('선택 결과: ' + result);
+                    
+                // 방법 2: 동적 임포트
+                } else if (window.__TAURI__) {
+                    log('dialog 모듈 동적 임포트 시도...');
+                    
+                    // @tauri-apps/api 모듈 사용
+                    const { dialog } = await import('@tauri-apps/api/dialog');
+                    log('dialog 모듈 임포트 성공');
+                    
+                    const result = await dialog.open({
+                        directory: true,
+                        title: '폴더 선택 테스트'
+                    });
+                    log('선택 결과: ' + result);
+                } else {
+                    log('Tauri API 없음');
+                }
+            } catch (error) {
+                log('에러: ' + error.message);
+                log('스택: ' + error.stack);
+            }
+        }
+
+        async function testFS() {
+            output.textContent = '';
+            log('=== FS 테스트 ===\n');
+            
+            try {
+                // 방법 1: 직접 접근
+                if (window.__TAURI__ && window.__TAURI__.fs) {
+                    log('fs 모듈 직접 접근 가능');
+                    const entries = await window.__TAURI__.fs.readDir('.');
+                    log('현재 디렉토리 항목: ' + entries.length);
+                    
+                // 방법 2: 동적 임포트
+                } else if (window.__TAURI__) {
+                    log('fs 모듈 동적 임포트 시도...');
+                    
+                    // @tauri-apps/api 모듈 사용
+                    const { fs } = await import('@tauri-apps/api/fs');
+                    log('fs 모듈 임포트 성공');
+                    
+                    const entries = await fs.readDir('.');
+                    log('현재 디렉토리 항목: ' + entries.length);
+                } else {
+                    log('Tauri API 없음');
+                }
+            } catch (error) {
+                log('에러: ' + error.message);
+                log('스택: ' + error.stack);
+            }
+        }
+
+        // 페이지 로드 시 자동 체크
+        window.addEventListener('DOMContentLoaded', () => {
+            checkTauri();
+        });
+    </script>
+</body>
+</html>

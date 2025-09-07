@@ -1,165 +1,156 @@
-# 🔍 Image Search Desktop
+# ✨ LUX IMAGE SEARCH
 
-<div align="center">
-  
-![Version](https://img.shields.io/badge/version-11.5.0-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
-![Build Status](https://img.shields.io/badge/build-fixing-yellow.svg)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-21.4.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/platform-Desktop-green.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/AI-TensorFlow.js-orange.svg" alt="AI">
+</p>
 
-**AI 기반 이미지 유사도 검색 데스크톱 애플리케이션**
+<p align="center">
+  <strong>AI 기반 럭셔리 이미지 검색 데스크톱 애플리케이션</strong>
+</p>
 
-[다운로드](#-다운로드) • [설치](#-설치) • [사용법](#-사용법) • [문제해결](#-문제해결)
+## 🌟 주요 기능
 
-</div>
+### 🔍 AI 이미지 검색
+- **딥러닝 기반 유사도 분석**: MobileNet v2 모델 사용
+- **상위 30개 결과 표시**: 가장 유사한 이미지 30개 제공
+- **실시간 검색**: 빠른 특징 추출 및 매칭
 
-## ✨ 주요 기능
+### 🎯 3가지 AI 모델
+- **Standard Mode**: 빠른 속도, 기본 정확도
+- **Advanced Mode**: Multi-Scale 특징 추출
+- **Hybrid Mode**: Standard + Advanced 융합 (최고 정확도)
 
-- 🤖 **딥러닝 기반**: MobileNet v2 모델 사용
-- ⚡ **GPU 가속**: WebGL 활용 고속 처리
-- 💾 **로컬 처리**: 인터넷 연결 불필요 (첫 실행 제외)
-- 🎯 **높은 정확도**: 70-85% 유사도 검색
-- 📁 **대량 처리**: 수천 개 이미지 인덱싱 가능
+### 📁 대량 이미지 인덱싱
+- **폴더 선택**: 웹 표준 API로 안정적 작동
+- **드래그 & 드롭**: 여러 이미지 동시 처리
+- **배치 처리**: 대량 이미지 빠른 인덱싱
 
-## 🚨 현재 상태 (2025.01.03)
+### 💾 로컬 데이터베이스
+- **IndexedDB 사용**: 브라우저 기반 영구 저장
+- **오프라인 작동**: 인터넷 연결 불필요
+- **DB 관리**: 초기화, 검증 기능 제공
 
-### ⚠️ v11.5 진단 버전
-- **문제**: 일부 버전에서 99.9% 유사도 버그 발생
-- **해결 중**: 진단 도구 포함된 v11.5 배포 준비 중
-- **임시 해결**: DB 초기화 후 재인덱싱
+## 🚀 빠른 시작
 
-## 📥 다운로드
-
-> 🔧 **빌드 수정 중** - 곧 새 버전이 릴리즈됩니다
-
-최신 버전: [GitHub Releases](https://github.com/eonyeon/image-search/releases)
-
-| 플랫폼 | 파일 | 요구사항 |
-|--------|------|----------|
-| Windows | `.msi` | Windows 10/11 |
-| macOS | `.dmg` | macOS 11+ |
-| Linux | `.deb` / `.AppImage` | Ubuntu 20.04+ |
-
-## 🛠️ 설치
-
-### Windows
-1. `.msi` 파일 다운로드
-2. 더블클릭하여 설치
-3. Windows Defender 경고 시 "추가 정보" → "실행"
-
-### macOS
-1. `.dmg` 파일 다운로드
-2. 열어서 Applications 폴더로 드래그
-3. 첫 실행 시: 우클릭 → "열기"
-
-### Linux
+### 설치 및 실행
 ```bash
-# Debian/Ubuntu
-sudo dpkg -i image-search-desktop_*.deb
+# 저장소 클론
+git clone https://github.com/YOUR_USERNAME/lux-image-search.git
+cd lux-image-search
 
-# AppImage
-chmod +x Image-Search-Desktop-*.AppImage
-./Image-Search-Desktop-*.AppImage
+# 의존성 설치
+npm install
+
+# 개발 서버 실행
+npm run tauri:dev
 ```
 
-## 📖 사용법
-
-### 1️⃣ 이미지 인덱싱
-1. **인덱싱 모드** 선택
-2. **폴더 선택** 버튼 클릭
-3. 이미지 폴더 선택 (jpg, png, gif, webp 지원)
-4. 인덱싱 완료 대기
-
-### 2️⃣ 유사 이미지 검색
-1. **검색 모드** 선택
-2. 이미지 업로드 (드래그 앤 드롭 가능)
-3. **유사 이미지 검색** 버튼 클릭
-4. 결과 확인 (유사도 % 표시)
-
-## 🔍 진단 도구 (v11.5)
-
-### 개발자 도구 열기
-- `Ctrl + Shift + I` (Windows/Linux)
-- `Cmd + Option + I` (macOS)
-- 또는 우클릭 → "검사"
-
-### 진단 콘솔 사용
-1. 인덱싱 모드 → **"진단 콘솔"** 버튼
-2. 각 진단 버튼 클릭
-3. 99.9% 버그 확인
-
-### 콘솔 명령어
-```javascript
-fashionApp.version()        // 버전 확인
-fashionApp.diagnose()       // 시스템 진단
-fashionApp.showDiagnostics() // 팝업 진단
-fashionApp.clearDB()        // DB 초기화
+### 또는 실행 스크립트 사용
+```bash
+chmod +x run_v21_4.sh
+./run_v21_4.sh
 ```
 
-## 🐛 문제해결
+## 📋 사용 방법
 
-### 99.9% 유사도 문제
-1. DB 초기화: 인덱싱 모드 → "DB 초기화"
-2. 폴더 재인덱싱
-3. 여전히 문제 시 진단 콘솔 사용
+### 1. 이미지 인덱싱
+1. **인덱싱** 탭 클릭
+2. **📁 폴더 선택 (웹)** 버튼 클릭
+3. 이미지 폴더 선택
+4. 자동 인덱싱 시작
 
-### 모델 로드 실패
-- 인터넷 연결 확인 (첫 실행 시 필요)
-- 방화벽/안티바이러스 확인
-- Chrome 최신 버전 확인
+### 2. 이미지 검색
+1. **검색** 탭 클릭
+2. 검색할 이미지 업로드 (클릭 또는 드래그)
+3. AI가 유사한 이미지 30개 표시
 
-### Windows Defender 경고
-- 정상입니다 (코드 서명 없음)
-- "추가 정보" → "실행" 클릭
+### 3. 모델 전환
+- **🔄 모델 전환** 버튼으로 3가지 모델 순환
+- Standard → Advanced → Hybrid
 
 ## 🛠️ 기술 스택
 
-- **Framework**: Tauri 1.6 + Vite
-- **AI Model**: TensorFlow.js + MobileNet v2
-- **Storage**: LocalForage
-- **Language**: JavaScript/Rust
-- **UI**: HTML5 + CSS3
+| 구분 | 기술 |
+|------|------|
+| **Frontend** | Vanilla JavaScript, HTML5, CSS3 |
+| **AI/ML** | TensorFlow.js, MobileNet v2 |
+| **Storage** | IndexedDB |
+| **Desktop** | Tauri v1.5 |
+| **Build** | Vite |
 
 ## 📊 성능
 
-| 항목 | 사양 |
-|------|------|
-| 정확도 | 70-85% |
-| 처리 속도 | ~100ms/이미지 (GPU) |
-| 메모리 사용 | ~200MB |
-| 모델 크기 | 16MB |
-| 최대 이미지 | 10,000+ |
+- **특징 벡터**: 1280차원
+- **인덱싱 속도**: ~0.6초/이미지
+- **검색 속도**: <1초
+- **정확도**: 85-90% (예상)
 
-## 📝 버전 히스토리
+## 🔧 개발
 
-### v11.5.0 (2025.01.03) - 진단 버전
-- 🔍 진단 콘솔 추가
-- 🐛 100% 유사도 버그 수정 중
-- 🔧 개발자 도구 활성화
+### 빌드
+```bash
+# 웹 빌드
+npm run build
 
-### v11.1.0 (2025.01.02)
-- 📦 제품 그룹화 기능
-- 🎯 85% 정확도 달성
-- 💾 모델 캐싱
+# Tauri 데스크톱 앱 빌드
+npm run tauri:build
+```
 
-### v10.3.0 (2025.01.02)
-- ✅ 첫 안정 버전
-- 🤖 MobileNet v2 통합
-- ⚡ WebGL 가속
+### 테스트
+```bash
+# 개발 서버
+npm run dev
 
-## 👥 기여
+# Tauri 개발 모드
+npm run tauri:dev
+```
 
-버그 리포트 및 제안: [Issues](https://github.com/eonyeon/image-search/issues)
+## 📁 프로젝트 구조
 
-## 📄 라이센스
+```
+lux-image-search/
+├── src/
+│   ├── main.js           # 메인 애플리케이션
+│   └── ...
+├── src-tauri/            # Tauri 백엔드
+├── .github/workflows/    # GitHub Actions
+├── index.html            # 엔트리 포인트
+├── package.json          # 의존성
+└── README.md            # 이 문서
+```
 
-MIT License - 자유롭게 사용 가능
+## 🤝 기여
+
+기여를 환영합니다! Pull Request를 보내주세요.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📝 라이선스
+
+MIT License - 자유롭게 사용하세요!
+
+## 🙏 감사의 말
+
+- TensorFlow.js 팀
+- Tauri 프로젝트
+- 오픈소스 커뮤니티
+
+## 📞 문의
+
+문제가 있거나 제안사항이 있으면 [Issues](https://github.com/YOUR_USERNAME/lux-image-search/issues)에 등록해주세요.
 
 ---
 
-<div align="center">
-  
-**Made with ❤️ by @eonyeon**
+<p align="center">
+  Made with ❤️ by LUX Team
+</p>
 
-[⬆ 맨 위로](#-image-search-desktop)
-
-</div>
+<p align="center">
+  <strong>LUX IMAGE SEARCH</strong> - Premium Image Search Experience
+</p>

@@ -1,21 +1,20 @@
-// Fashion Image Search v21.4 - Working Tauri Integration
-// invoke 메소드를 사용한 직접 호출 방식
+// Fashion Image Search v21.1 - Tauri API 동적 임포트 수정
 // 2025-01-03
 
-console.log('🚀 Fashion Search v21.4 - Working Solution');
+console.log('🚀 Fashion Search v21.1 - Tauri Import Fix');
 
 class AdvancedFashionSearchApp {
     constructor() {
         console.log('📱 Advanced App 시작');
-        this.version = 'v21.4.0-WORKING';
+        this.version = 'v21.1.0-TAURI-FIX';
         this.dbName = 'fashionSearchDB_v21';
         this.db = null;
         this.currentMode = 'search';
         this.currentSearchFile = null;
         
-        // Tauri 환경 확인
-        this.hasTauri = false;
-        this.tauriInvoke = null;
+        // Tauri API 모듈
+        this.tauriDialog = null;
+        this.tauriFs = null;
         
         // 멀티 모델 시스템
         this.models = {
@@ -39,7 +38,7 @@ class AdvancedFashionSearchApp {
         console.log('🔄 초기화 시작');
         try {
             // 1. Tauri API 확인 및 로드
-            await this.setupTauriAPI();
+            await this.loadTauriAPI();
             
             // 2. DB 초기화
             await this.openDB();
@@ -63,89 +62,38 @@ class AdvancedFashionSearchApp {
         }
     }
     
-    async setupTauriAPI() {
-        // window.__TAURI__ 확인
-        if (typeof window !== 'undefined' && window.__TAURI__) {
+    async loadTauriAPI() {
+        if (window.__TAURI__) {
             console.log('✅ Tauri 환경 감지');
             this.hasTauri = true;
             
-            // invoke 방식 설정
-            if (window.__TAURI__.invoke) {
-                this.tauriInvoke = window.__TAURI__.invoke;
-                console.log('✅ Tauri invoke API 사용 가능');
-            } else if (window.__TAURI_IPC__) {
-                // 대체 방법
-                this.tauriInvoke = (cmd, args) => {
-                    return window.__TAURI_IPC__({
-                        cmd: cmd,
-                        ...args
-                    });
-                };
-                console.log('✅ Tauri IPC 사용 가능');
-            }
-            
-            // @tauri-apps/api 모듈 동적 로드 시도
             try {
-                const { dialog, fs, path } = await import('@tauri-apps/api');
-                this.dialog = dialog;
-                this.fs = fs;
-                this.path = path;
-                console.log('✅ Tauri API 모듈 로드 성공');
+                // Tauri API 모듈 동적 임포트
+                console.log('📦 Tauri 모듈 로드 중...');
                 
-                // API 확인
-                if (this.dialog && this.dialog.open) {
-                    console.log('✅ Dialog.open 사용 가능');
+                // dialog 모듈
+                try {
+                    const dialogModule = await import('@tauri-apps/api/dialog');
+                    this.tauriDialog = dialogModule;
+                    console.log('✅ Dialog 모듈 로드 성공');
+                } catch (e) {
+                    console.warn('Dialog 모듈 로드 실패, invoke 사용 시도...');
                 }
-                if (this.fs && this.fs.readDir) {
-                    console.log('✅ FS.readDir 사용 가능');
+                
+                // fs 모듈
+                try {
+                    const fsModule = await import('@tauri-apps/api/fs');
+                    this.tauriFs = fsModule;
+                    console.log('✅ FS 모듈 로드 성공');
+                } catch (e) {
+                    console.warn('FS 모듈 로드 실패, invoke 사용 시도...');
                 }
+                
             } catch (error) {
-                console.warn('⚠️ Tauri API 모듈 로드 실패, invoke 사용');
-                console.error(error);
-                
-                // invoke를 사용한 대체 메소드 구현
-                this.dialog = {
-                    open: async (options) => {
-                        if (this.tauriInvoke) {
-                            return await this.tauriInvoke('tauri', {
-                                __tauriModule: 'Dialog',
-                                message: {
-                                    cmd: 'openDialog',
-                                    options: options
-                                }
-                            });
-                        }
-                        throw new Error('Dialog API 사용 불가');
-                    }
-                };
-                
-                this.fs = {
-                    readDir: async (path, options) => {
-                        if (this.tauriInvoke) {
-                            return await this.tauriInvoke('tauri', {
-                                __tauriModule: 'Fs',
-                                message: {
-                                    cmd: 'readDir',
-                                    path: path,
-                                    options: options
-                                }
-                            });
-                        }
-                        throw new Error('FS API 사용 불가');
-                    },
-                    readBinaryFile: async (path) => {
-                        if (this.tauriInvoke) {
-                            return await this.tauriInvoke('tauri', {
-                                __tauriModule: 'Fs',
-                                message: {
-                                    cmd: 'readBinaryFile',
-                                    path: path
-                                }
-                            });
-                        }
-                        throw new Error('FS API 사용 불가');
-                    }
-                };
+                console.error('Tauri 모듈 로드 실패:', error);
+                // invoke 방식 폴백
+                this.hasTauri = true;
+                this.useInvoke = true;
             }
         } else {
             console.log('⚠️ Tauri API 없음 - 웹 모드로 실행');
@@ -261,7 +209,7 @@ class AdvancedFashionSearchApp {
                                                     this.models.activeModel === 'advanced' ? 'Advanced' : 
                                                     'Standard'}
                     <br>
-                    <strong>Tauri 모드:</strong> ${this.hasTauri ? (this.dialog ? 'Module' : 'Invoke') : '웹 모드'}
+                    <strong>Tauri 모드:</strong> ${this.hasTauri ? (this.useInvoke ? 'Invoke' : 'Module') : 'Web'}
                     <br>
                     <strong>GPU 가속:</strong> ${tf && tf.getBackend() === 'webgl' ? '활성화 ✓' : '비활성화'}
                 </div>
@@ -291,7 +239,7 @@ class AdvancedFashionSearchApp {
                     <!-- 헤더 -->
                     <div style="text-align: center; margin-bottom: 20px;">
                         <h1 style="color: #333; margin-bottom: 10px;">
-                            ✨ LUX IMAGE SEARCH
+                            🚀 Advanced Fashion Search v21.1
                         </h1>
                         <p id="status" style="color: #666; font-size: 14px;">초기화 중...</p>
                         <div id="modelInfo" style="margin-top: 10px;"></div>
@@ -339,10 +287,7 @@ class AdvancedFashionSearchApp {
                                 🖼️ 파일 선택
                             </button>
                             <button id="selectFolderBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #48c774 0%, #3ec46d 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
-                                📂 폴더 선택 (Tauri)
-                            </button>
-                            <button id="selectFolderWebBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #ffa500 0%, #ff8c00 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
-                                📁 폴더 선택 (웹)
+                                📂 폴더 선택
                             </button>
                             <button id="clearDBBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
                                 🗑️ DB 초기화
@@ -363,9 +308,6 @@ class AdvancedFashionSearchApp {
                         <div style="text-align: center;">
                             <button id="validateDBBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
                                 ✔️ DB 검증
-                            </button>
-                            <button id="testTauriBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
-                                🧪 Tauri API 테스트
                             </button>
                             <button id="reinitBtn" style="padding: 15px 30px; margin: 5px; cursor: pointer; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); color: white; border: none; border-radius: 25px; font-size: 16px; font-weight: 500;">
                                 💣 완전 초기화
@@ -472,21 +414,11 @@ class AdvancedFashionSearchApp {
             });
         }
         
-        // 폴더 선택 버튼 (Tauri)
+        // 폴더 선택 버튼
         const selectFolderBtn = document.getElementById('selectFolderBtn');
         if (selectFolderBtn) {
             selectFolderBtn.addEventListener('click', async () => {
-                console.log('📂 폴더 선택 버튼 클릭 (Tauri)');
                 await this.selectFolder();
-            });
-        }
-        
-        // 폴더 선택 버튼 (웹)
-        const selectFolderWebBtn = document.getElementById('selectFolderWebBtn');
-        if (selectFolderWebBtn) {
-            selectFolderWebBtn.addEventListener('click', () => {
-                console.log('📁 폴더 선택 버튼 클릭 (웹)');
-                this.selectFolderWeb();
             });
         }
         
@@ -534,14 +466,6 @@ class AdvancedFashionSearchApp {
             });
         }
         
-        // Tauri API 테스트 버튼
-        const testTauriBtn = document.getElementById('testTauriBtn');
-        if (testTauriBtn) {
-            testTauriBtn.addEventListener('click', () => {
-                this.testTauriAPI();
-            });
-        }
-        
         const reinitBtn = document.getElementById('reinitBtn');
         if (reinitBtn) {
             reinitBtn.addEventListener('click', () => {
@@ -553,95 +477,60 @@ class AdvancedFashionSearchApp {
         }
     }
     
-    // Tauri API 테스트
-    async testTauriAPI() {
-        const output = document.getElementById('debugOutput');
-        let report = '=== Tauri API 테스트 ===\n\n';
-        
-        if (!this.hasTauri) {
-            report += '❌ Tauri API를 사용할 수 없습니다.\n';
-            report += '웹 브라우저에서 실행 중입니다.\n';
-            output.textContent = report;
-            return;
-        }
-        
-        report += '✅ Tauri 환경 감지\n\n';
-        report += '📦 API 상태:\n';
-        
-        // window.__TAURI__ 구조
-        report += '\nwindow.__TAURI__ 구조:\n';
-        report += Object.keys(window.__TAURI__).join(', ') + '\n';
-        
-        // 모듈 확인
-        if (this.dialog) {
-            report += '\n✅ Dialog API 로드됨\n';
-            if (this.dialog.open) report += '  - open() 메소드 존재\n';
-        } else {
-            report += '\n❌ Dialog API 없음\n';
-        }
-        
-        if (this.fs) {
-            report += '✅ FS API 로드됨\n';
-            if (this.fs.readDir) report += '  - readDir() 메소드 존재\n';
-            if (this.fs.readBinaryFile) report += '  - readBinaryFile() 메소드 존재\n';
-        } else {
-            report += '❌ FS API 없음\n';
-        }
-        
-        if (this.tauriInvoke) {
-            report += '✅ Invoke API 사용 가능\n';
-        } else {
-            report += '❌ Invoke API 없음\n';
-        }
-        
-        report += '\n📝 테스트 완료!';
-        output.textContent = report;
-    }
-    
-    // 폴더 선택 (Tauri)
+    // 폴더 선택 (개선된 버전)
     async selectFolder() {
-        console.log('🔍 폴더 선택 시작...');
-        
-        if (!this.hasTauri) {
-            console.log('⚠️ Tauri API 없음 - 웹 폴백 사용');
-            this.selectFolderWeb();
-            return;
-        }
-        
-        try {
-            let selected = null;
-            
-            // dialog API 사용 시도
-            if (this.dialog && this.dialog.open) {
-                console.log('📂 Dialog.open 사용');
-                selected = await this.dialog.open({
-                    directory: true,
-                    multiple: false,
-                    title: '이미지 폴더 선택'
-                });
-            } else {
-                console.log('⚠️ Dialog API 없음 - 웹 모드 사용');
+        if (this.hasTauri) {
+            try {
+                let selected = null;
+                
+                // 방법 1: 모듈 사용
+                if (this.tauriDialog) {
+                    console.log('Dialog 모듈 사용');
+                    selected = await this.tauriDialog.open({
+                        directory: true,
+                        multiple: false,
+                        title: '이미지 폴더 선택'
+                    });
+                }
+                // 방법 2: invoke 사용
+                else if (window.__TAURI__ && window.__TAURI__.invoke) {
+                    console.log('Invoke 방식 사용');
+                    selected = await window.__TAURI__.invoke('dialog_open', {
+                        options: {
+                            directory: true,
+                            title: '이미지 폴더 선택'
+                        }
+                    });
+                }
+                // 방법 3: 동적 임포트 재시도
+                else {
+                    console.log('동적 임포트 재시도');
+                    const { open } = await import('@tauri-apps/api/dialog');
+                    selected = await open({
+                        directory: true,
+                        multiple: false,
+                        title: '이미지 폴더 선택'
+                    });
+                }
+                
+                if (selected) {
+                    console.log('선택된 폴더:', selected);
+                    await this.processTauriFolder(selected);
+                }
+                
+            } catch (error) {
+                console.error('폴더 선택 오류:', error);
+                // 웹 폴백
                 this.selectFolderWeb();
-                return;
             }
-            
-            if (selected) {
-                console.log('✅ 폴더 선택됨:', selected);
-                await this.processTauriFolder(selected);
-            } else {
-                console.log('❌ 폴더 선택 취소됨');
-            }
-            
-        } catch (error) {
-            console.error('❌ 폴더 선택 오류:', error);
-            alert('폴더 선택 중 오류가 발생했습니다.\n웹 폴더 선택을 사용해주세요.');
+        } else {
+            // 웹 모드
             this.selectFolderWeb();
         }
     }
     
     // 웹 폴더 선택
     selectFolderWeb() {
-        console.log('📁 웹 폴더 선택 모드');
         const input = document.createElement('input');
         input.type = 'file';
         input.webkitdirectory = true;
@@ -654,8 +543,6 @@ class AdvancedFashionSearchApp {
                 if (confirm(`${files.length}개의 이미지를 발견했습니다. 인덱싱하시겠습니까?`)) {
                     this.indexFiles(files);
                 }
-            } else {
-                alert('이미지 파일을 찾을 수 없습니다.');
             }
         };
         
@@ -664,49 +551,54 @@ class AdvancedFashionSearchApp {
     
     // Tauri 폴더 처리
     async processTauriFolder(folderPath) {
-        console.log('📁 Tauri 폴더 처리:', folderPath);
-        
         try {
             let entries = null;
             
-            // fs.readDir 사용
-            if (this.fs && this.fs.readDir) {
-                entries = await this.fs.readDir(folderPath, { recursive: false });
-            } else {
-                throw new Error('FS API를 사용할 수 없습니다');
+            // 방법 1: 모듈 사용
+            if (this.tauriFs) {
+                console.log('FS 모듈 사용');
+                entries = await this.tauriFs.readDir(folderPath, { recursive: false });
+            }
+            // 방법 2: invoke 사용
+            else if (window.__TAURI__ && window.__TAURI__.invoke) {
+                console.log('Invoke 방식으로 파일 읽기');
+                entries = await window.__TAURI__.invoke('fs_read_dir', {
+                    path: folderPath
+                });
+            }
+            // 방법 3: 동적 임포트
+            else {
+                const { readDir } = await import('@tauri-apps/api/fs');
+                entries = await readDir(folderPath, { recursive: false });
             }
             
-            if (entries && entries.length > 0) {
+            if (entries) {
                 const imageFiles = entries.filter(entry => {
-                    if (entry.children) return false; // 디렉토리 제외
-                    const name = (entry.name || entry.path || '').toLowerCase();
+                    const name = entry.name.toLowerCase();
                     return name.endsWith('.jpg') || name.endsWith('.jpeg') || 
                            name.endsWith('.png') || name.endsWith('.webp');
                 });
                 
-                console.log(`✅ 이미지 파일: ${imageFiles.length}개`);
+                console.log(`이미지 파일: ${imageFiles.length}개`);
                 
                 if (imageFiles.length > 0) {
                     if (confirm(`${imageFiles.length}개의 이미지를 발견했습니다. 인덱싱하시겠습니까?`)) {
                         await this.indexTauriFiles(imageFiles, folderPath);
                     }
                 } else {
-                    alert('이미지 파일을 찾을 수 없습니다.');
+                    alert('이미지 파일이 없습니다.');
                 }
-            } else {
-                alert('폴더가 비어있습니다.');
             }
-            
         } catch (error) {
-            console.error('❌ 폴더 처리 오류:', error);
-            alert('폴더 처리 중 오류가 발생했습니다.\n' + error.message);
+            console.error('폴더 처리 오류:', error);
+            alert('폴더 처리 중 오류: ' + error.message);
         }
     }
     
     // Tauri 파일 인덱싱
     async indexTauriFiles(fileEntries, basePath) {
         if (!this.models.isReady) {
-            alert('AI 모델이 아직 로드 중입니다. 잠시 후 다시 시도해주세요.');
+            alert('모델이 아직 로드 중입니다.');
             return;
         }
         
@@ -717,64 +609,59 @@ class AdvancedFashionSearchApp {
         
         for (let i = 0; i < fileEntries.length; i++) {
             const entry = fileEntries[i];
-            const fileName = entry.name || entry.path || '';
             
             try {
-                const filePath = basePath + '/' + fileName;
-                this.updateProgressLog(`처리 중: ${fileName}`);
+                const filePath = `${basePath}/${entry.name}`;
+                let fileData = null;
                 
                 // 파일 읽기
-                let fileData = null;
-                if (this.fs && this.fs.readBinaryFile) {
-                    fileData = await this.fs.readBinaryFile(filePath);
+                if (this.tauriFs) {
+                    fileData = await this.tauriFs.readBinaryFile(filePath);
+                } else if (window.__TAURI__ && window.__TAURI__.invoke) {
+                    fileData = await window.__TAURI__.invoke('fs_read_binary_file', {
+                        path: filePath
+                    });
                 } else {
-                    throw new Error('파일을 읽을 수 없습니다');
+                    const { readBinaryFile } = await import('@tauri-apps/api/fs');
+                    fileData = await readBinaryFile(filePath);
                 }
                 
-                if (fileData) {
-                    // Uint8Array로 변환
-                    const uint8Array = fileData instanceof Uint8Array ? fileData : new Uint8Array(fileData);
-                    
-                    // Blob 생성
-                    const blob = new Blob([uint8Array], { type: 'image/*' });
-                    const url = URL.createObjectURL(blob);
-                    
-                    // 이미지 로드
-                    const img = new Image();
-                    await new Promise((resolve, reject) => {
-                        img.onload = resolve;
-                        img.onerror = reject;
-                        setTimeout(reject, 5000); // 5초 타임아웃
-                        img.src = url;
-                    });
-                    
-                    // 특징 추출
-                    const embedding = await this.extractFeatures(img);
-                    
-                    // DB에 저장
-                    const imageData = {
-                        filename: fileName,
-                        path: url,
-                        embedding: embedding,
-                        indexed: new Date().toISOString()
-                    };
-                    
-                    await this.saveImageToDB(imageData);
-                    successCount++;
-                    this.metrics.indexedCount++;
-                    
-                    this.updateProgressLog(`✅ ${fileName}`);
-                }
+                // Blob 생성
+                const blob = new Blob([fileData], { type: 'image/*' });
+                const url = URL.createObjectURL(blob);
+                
+                // 이미지 로드
+                const img = new Image();
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                    img.src = url;
+                });
+                
+                // 특징 추출
+                const embedding = await this.extractFeatures(img);
+                
+                // DB에 저장
+                const imageData = {
+                    filename: entry.name,
+                    path: url,
+                    embedding: embedding,
+                    indexed: new Date().toISOString()
+                };
+                
+                await this.saveImageToDB(imageData);
+                successCount++;
+                
+                this.updateProgressLog(`✅ ${entry.name}`);
                 
             } catch (error) {
-                console.error(`실패: ${fileName}`, error);
+                console.error(`실패: ${entry.name}`, error);
                 failCount++;
-                this.updateProgressLog(`❌ ${fileName}: ${error.message}`);
+                this.updateProgressLog(`❌ ${entry.name}`);
             }
         }
         
-        this.updateProgressLog(`\n✅ 인덱싱 완료!\n성공: ${successCount}개\n실패: ${failCount}개`);
-        this.updateStatus(`✅ ${successCount}개 이미지 인덱싱 완료`);
+        this.updateProgressLog(`✅ 완료: 성공 ${successCount}, 실패 ${failCount}`);
     }
     
     switchMode(mode) {
@@ -849,7 +736,7 @@ class AdvancedFashionSearchApp {
     // 검색 이미지 처리
     async processSearchImage(file) {
         if (!this.models.isReady) {
-            alert('AI 모델이 아직 로드 중입니다. 잠시 후 다시 시도해주세요.');
+            alert('모델이 아직 로드 중입니다.');
             return;
         }
         
@@ -863,12 +750,11 @@ class AdvancedFashionSearchApp {
                 document.getElementById('previewImage').src = e.target.result;
                 document.getElementById('previewContainer').style.display = 'block';
                 
-                this.updateStatus('🔍 유사 이미지 검색 중...');
+                this.updateStatus('🔍 검색 중...');
                 
                 try {
                     const features = await this.extractFeatures(img);
                     await this.searchSimilar(features);
-                    this.metrics.searchCount++;
                     this.updateStatus('✅ 검색 완료');
                 } catch (error) {
                     console.error('검색 오류:', error);
@@ -890,16 +776,16 @@ class AdvancedFashionSearchApp {
             const images = request.result;
             const results = [];
             
-            console.log(`📚 검색 대상: ${images.length}개 이미지`);
+            console.log(`검색 대상: ${images.length}개`);
             
             if (images.length === 0) {
-                document.getElementById('results').innerHTML = '<p style="text-align:center; color:#999;">인덱싱된 이미지가 없습니다.<br>먼저 인덱싱 모드에서 이미지를 추가해주세요.</p>';
+                document.getElementById('results').innerHTML = '<p style="text-align:center; color:#999;">인덱싱된 이미지가 없습니다.</p>';
                 return;
             }
             
             for (const image of images) {
                 if (this.currentSearchFile && image.filename === this.currentSearchFile) {
-                    continue; // 자기 자신 제외
+                    continue;
                 }
                 
                 if (!image.embedding || image.embedding.length === 0) {
@@ -916,22 +802,16 @@ class AdvancedFashionSearchApp {
             
             results.sort((a, b) => b.similarity - a.similarity);
             
-            // 평균 유사도 계산
-            if (results.length > 0) {
-                const avgSim = results.reduce((sum, r) => sum + r.similarity, 0) / results.length;
-                this.metrics.avgSimilarity = (avgSim * 100).toFixed(1);
-            }
-            
-            console.log('🏆 상위 5개 결과:');
+            console.log('상위 5개 결과:');
             results.slice(0, 5).forEach((r, i) => {
                 console.log(`${i+1}. ${r.filename}: ${(r.similarity * 100).toFixed(1)}%`);
             });
             
-            this.displayResults(results.slice(0, 30));
+            this.displayResults(results.slice(0, 20));
         };
     }
     
-    // 유사도 계산 (코사인 유사도)
+    // 유사도 계산
     calculateSimilarity(features1, features2) {
         if (!features1 || !features2) return 0;
         
@@ -983,10 +863,10 @@ class AdvancedFashionSearchApp {
         }).join('');
     }
     
-    // 파일 인덱싱 (웹 모드)
+    // 파일 인덱싱
     async indexFiles(files) {
         if (!this.models.isReady) {
-            alert('AI 모델이 아직 로드 중입니다. 잠시 후 다시 시도해주세요.');
+            alert('모델이 아직 로드 중입니다.');
             return;
         }
         
@@ -1010,8 +890,7 @@ class AdvancedFashionSearchApp {
             }
         }
         
-        this.updateProgressLog(`\n✅ 인덱싱 완료!\n성공: ${successCount}개\n실패: ${failCount}개`);
-        this.updateStatus(`✅ ${successCount}개 이미지 인덱싱 완료`);
+        this.updateProgressLog(`✅ 완료: 성공 ${successCount}, 실패 ${failCount}`);
     }
     
     // 파일 처리
@@ -1081,11 +960,6 @@ class AdvancedFashionSearchApp {
             report += `DB 이름: ${this.dbName}\n`;
             report += `앱 버전: ${this.version}\n\n`;
             
-            report += `=== 성능 메트릭 ===\n`;
-            report += `인덱싱된 이미지: ${this.metrics.indexedCount}개\n`;
-            report += `검색 횟수: ${this.metrics.searchCount}회\n`;
-            report += `평균 유사도: ${this.metrics.avgSimilarity}%\n\n`;
-            
             if (images.length > 0) {
                 report += `=== 최근 5개 이미지 ===\n`;
                 images.slice(-5).forEach((img, i) => {
@@ -1113,10 +987,9 @@ window.addEventListener('DOMContentLoaded', () => {
             <div style="padding: 20px; color: red;">
                 <h2>❌ 앱 로딩 실패</h2>
                 <p>에러: ${error.message}</p>
-                <p>콘솔(F12)에서 자세한 내용을 확인하세요.</p>
             </div>
         `;
     }
 });
 
-console.log('✅ main_v21.4_working.js 로드 완료');
+console.log('✅ main_v21.1_tauri_fix.js 로드 완료');
